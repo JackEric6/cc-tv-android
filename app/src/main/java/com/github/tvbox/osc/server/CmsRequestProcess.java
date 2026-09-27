@@ -91,6 +91,7 @@ final class CmsRequestProcess implements RequestProcess {
     private static final ExecutorService IMAGE_DETAIL_POOL = Executors.newFixedThreadPool(4);
     private static final Set<String> ALLOWED_HOSTS = new HashSet<>(Arrays.asList(
             "api.ffzyapi.com",
+            "cj.ffzyapi.com",
             "cj.lziapi.com",
             "suoniapi.com",
             "www.hongniuzy2.com",

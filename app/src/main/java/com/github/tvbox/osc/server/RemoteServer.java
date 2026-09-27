@@ -105,6 +105,7 @@ public class RemoteServer extends NanoHTTPD {
         getRequestList.add(new CmsRequestProcess());
         getRequestList.add(new KktvsRequestProcess());
         getRequestList.add(new IkanbotRequestProcess());
+        getRequestList.add(new MmovRequestProcess());
         getRequestList.add(new CacheRequestProcess());
     }
 

@@ -741,6 +741,7 @@ public class ApiConfig {
         spiderLoader.setJarCache(DefaultConfig.safeJsonString(infoJson, "jarCache", "true"));
         danmaku = DefaultConfig.safeJsonString(infoJson, "danmaku", "");
         // 远端站点源
+        mergeBundledDefaultSources(apiUrl, infoJson);
         List<SourceBean> sites = ConfigParser.parseSites(infoJson);
         for (SourceBean sb : sites) {
             // 配置文件可能写死默认端口,但本地服务遇到端口占用会自动递增。
@@ -922,6 +923,36 @@ public class ApiConfig {
                     AdBlocker.addAdHost(host.getAsString());
                 }
             }
+        }
+    }
+
+    /** 默认远程配置即使暂未更新，也把 APK 中新增且带本地适配器的站点补进来。 */
+    private void mergeBundledDefaultSources(String apiUrl, JsonObject infoJson) {
+        if (!HawkConfig.DEFAULT_API_URL.equals(apiUrl) || infoJson == null) return;
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                App.getInstance().getAssets().open("xgzy_added_sites.json"), "UTF-8"))) {
+            StringBuilder content = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) content.append(line).append('\n');
+            JsonObject bundled = gson.fromJson(content.toString(), JsonObject.class);
+            if (bundled == null || !bundled.has("sites") || !bundled.get("sites").isJsonArray()) return;
+            JsonArray sites = infoJson.has("sites") && infoJson.get("sites").isJsonArray()
+                    ? infoJson.getAsJsonArray("sites") : new JsonArray();
+            if (!infoJson.has("sites") || !infoJson.get("sites").isJsonArray()) infoJson.add("sites", sites);
+            Set<String> existingKeys = new HashSet<>();
+            for (JsonElement site : sites) {
+                if (site != null && site.isJsonObject()) {
+                    String key = DefaultConfig.safeJsonString(site.getAsJsonObject(), "key", "");
+                    if (!TextUtils.isEmpty(key)) existingKeys.add(key);
+                }
+            }
+            for (JsonElement site : bundled.getAsJsonArray("sites")) {
+                if (site == null || !site.isJsonObject()) continue;
+                String key = DefaultConfig.safeJsonString(site.getAsJsonObject(), "key", "");
+                if (!TextUtils.isEmpty(key) && existingKeys.add(key)) sites.add(site.deepCopy());
+            }
+        } catch (Throwable error) {
+            LOG.e("bundled source merge failed: " + error);
         }
     }
 
