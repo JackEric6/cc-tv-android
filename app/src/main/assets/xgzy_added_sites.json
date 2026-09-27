@@ -26,7 +26,7 @@
     },
     {
       "key": "fhw88",
-      "name": "鑫同影院",
+      "name": "鑫同",
       "type": 1,
       "api": "http://127.0.0.1:9978/cms?source=https%3A%2F%2Fcj.ffzyapi.com%2Fapi.php%2Fprovide%2Fvod%2F",
       "searchable": 1,
