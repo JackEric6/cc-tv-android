@@ -1,0 +1,37 @@
+{
+  "lives": [
+    {
+      "group": "公开验证源",
+      "channels": [
+        {
+          "name": "CCTV-10",
+          "logo": "",
+          "urls": [
+            "https://cdn4.skygo.mn/live/disk1/CCTV-10/HLSv3-FTA/CCTV-10-avc1_2000000=3-mp4a_256000_eng=10.m3u8$GitHub公开源"
+          ]
+        },
+        {
+          "name": "河北卫视",
+          "logo": "",
+          "urls": [
+            "https://event.pull.hebtv.com/jishi/cp1.m3u8$河北公开源"
+          ]
+        },
+        {
+          "name": "哈尔滨台",
+          "logo": "",
+          "urls": [
+            "https://stream.hrbtv.net/yspd/sd/live.m3u8$哈尔滨公开源"
+          ]
+        },
+        {
+          "name": "河北电视",
+          "logo": "",
+          "urls": [
+            "https://event.pull.hebtv.com/live/live101.m3u8$河北备用源"
+          ]
+        }
+      ]
+    }
+  ]
+}

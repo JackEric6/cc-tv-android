@@ -1,0 +1,255 @@
+package com.github.tvbox.osc.player.ui
+
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import com.github.tvbox.osc.R
+import com.github.tvbox.osc.player.state.LockVisibility
+import com.github.tvbox.osc.player.state.PlayerActions
+import com.github.tvbox.osc.player.state.PlayerUiState
+
+/**
+ * 浮层组（照搬旧 tv_slide_progress_text / tv_progress_container /
+ * loading / tv_play_load_net_speed / tv_back / tv_lock / play_speed_3_container）。
+ * 视觉：提示类浮层（seek 提示 / 亮度音量提示）统一为 M3 surface 药丸 —— 半透明
+ * `surfaceContainer`(90%) + 4dp 轻投影、无描边、内容自适应（2026-09-13 用户定稿，
+ * 废弃旧 shape_user_focus 的深灰底 #6C3D3D3D + 白描边 + 固定 200x100mm）。
+ */
+
+private val PillShape = RoundedCornerShape(50)
+
+@Composable
+private fun HintPill(modifier: Modifier, content: @Composable () -> Unit) {
+    Row(
+        modifier
+            // M3 surface 样式：surfaceContainer 50% 透明度 + 轻投影,无描边
+            .shadow(4.dp, PillShape)
+            .background(
+                MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.5f),
+                PillShape
+            )
+            .padding(horizontal = playerDim(R.dimen.vs_20), vertical = playerDim(R.dimen.vs_10)),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        content()
+    }
+}
+
+/**
+ * 暂停浮层：仅中央播放键（60dp 半透明圆底，点按即续播，免二次点击）。
+ * 退后台触发的暂停不显示（pauseOverlayVisible 排除 lifecyclePaused）——避免被系统任务快照拍出"已暂停"假象。
+ */
+@Composable
+fun PlayerPauseLayer(state: PlayerUiState, actions: PlayerActions) {
+    if (!state.pauseOverlayVisible) return
+    Box(Modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .align(Alignment.Center)
+                .size(60.dp)
+                .background(Color.Black.copy(alpha = 0.35f), CircleShape)
+                .pointerInput(Unit) {
+                    detectTapGestures(onTap = { actions.onPlayPauseClicked() })
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Image(
+                painter = painterResource(R.drawable.player_ic_play),
+                contentDescription = "播放",
+                modifier = Modifier.size(60.dp * 0.55f),
+            )
+        }
+    }
+}
+
+/**
+ * 亮度/音量提示（中央药丸，替代旧 msg 100/101 + tv_slide_progress_text）。
+ * 2026-09-13 用户定稿：**样式与 seek 提示（[PlayerSeekHint]）完全同款** —— 复用 [HintPill]
+ * （半透明 `surfaceContainer` 90% + 轻投影、无描边），尺寸由内容自适应（不再固定 200x100mm），
+ * 文字色 `onSurface`。
+ */
+@Composable
+fun PlayerSlideHint(state: PlayerUiState) {
+    if (!state.slideHintVisible) return
+    Box(Modifier.fillMaxSize()) {
+        HintPill(modifier = Modifier.align(Alignment.Center)) {
+            Text(
+                text = state.slideHintText,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = playerTextSize(R.dimen.ts_30),
+            )
+        }
+    }
+}
+
+/** seek 提示（顶部居中 60mm，快进/快退图标 + 时间，替代 msg 1000/1001） */
+@Composable
+fun PlayerSeekHint(state: PlayerUiState) {
+    if (!state.seekHintVisible) return
+    Box(Modifier.fillMaxSize()) {
+        HintPill(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .offset(y = playerDim(R.dimen.vs_60))
+        ) {
+            Image(
+                painter = painterResource(
+                    if (state.seekHintForward) R.drawable.exo_icon_fastforward else R.drawable.exo_icon_rewind
+                ),
+                contentDescription = null,
+                colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.onSurface),
+                modifier = Modifier.size(playerDim(R.dimen.vs_40)),
+            )
+            Spacer(Modifier.width(playerDim(R.dimen.vs_20)))
+            Text(
+                text = state.seekHintText,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = playerTextSize(R.dimen.ts_30),
+            )
+        }
+    }
+}
+
+/** loading（PREPARING/BUFFERING 显示，替代旧 vod_control_loading ProgressBar）；
+ *  指示器下方实时网速（2026-09-12 用户需求）：复用 1s 轮询刷新的 netSpeedTopRight，
+ *  拖动进度条/缓冲时用户可直观看到取流速度 */
+@Composable
+fun PlayerLoadingLayer(state: PlayerUiState) {
+    if (!state.loadingVisible) return
+    Box(Modifier.fillMaxSize()) {
+        CircularProgressIndicator(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .size(playerDim(R.dimen.vs_50)),
+            color = Color.White,
+        )
+        Text(
+            text = state.netSpeedTopRight,
+            color = Color.White,
+            fontSize = playerTextSize(R.dimen.ts_20),
+            modifier = Modifier
+                .align(Alignment.Center)
+                .offset(y = playerDim(R.dimen.vs_50) / 2 + playerDim(R.dimen.vs_10)),
+        )
+    }
+}
+
+/** 中央网速（旧 tv_play_load_net_speed：center + marginTop 40mm，仅 IDLE 可见） */
+@Composable
+fun PlayerNetSpeedCenter(state: PlayerUiState) {
+    if (!state.netSpeedCenterVisible) return
+    Box(Modifier.fillMaxSize()) {
+        Text(
+            text = state.netSpeedCenter,
+            color = Color.White,
+            fontSize = playerTextSize(R.dimen.ts_20),
+            modifier = Modifier
+                .align(Alignment.Center)
+                .offset(y = playerDim(R.dimen.vs_40)),
+        )
+    }
+}
+
+/** 锁屏按钮（右中；三态照搬 showLockView：非预览态非 TV 才出现，锁定 3s 后隐藏）。UI v3：尺寸缩至 24dp */
+@Composable
+fun PlayerLockButton(state: PlayerUiState, actions: PlayerActions) {
+    when (state.lockState) {
+        LockVisibility.GONE -> return
+        LockVisibility.HIDDEN, LockVisibility.SHOWN -> {
+            val shown = state.lockState == LockVisibility.SHOWN
+            // 右边距跟随 window 分档（竖屏预览 16dp / 横屏全屏与平板 24dp，见 playerEdgePadding）
+            val edge = playerEdgePadding()
+            // 间隙中点对齐屏中；必须用 offset——align 后的 padding 会被对齐外框居中吞一半
+            val halfGap = playerDim(R.dimen.vs_40) / 2 + 12.dp
+            Box(Modifier.fillMaxSize()) {
+                Image(
+                    painter = painterResource(
+                        if (state.locked) R.drawable.icon_lock else R.drawable.icon_unlock
+                    ),
+                    contentDescription = "锁屏",
+                    alpha = if (shown) 1f else 0f,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = edge)
+                        .offset(y = halfGap)
+                        .size(24.dp)
+                        .then(
+                            if (shown) {
+                                Modifier.pointerInput(Unit) {
+                                    detectTapGestures(onTap = { actions.onLockClicked() })
+                                }
+                            } else {
+                                Modifier
+                            }
+                        )
+                )
+                // 旋转到竖屏/横屏：锁上方隔 vs_40；锁定态隐藏（绕锁旋转无意义）
+                val rotateShown = shown && !state.locked
+                Image(
+                    painter = painterResource(R.drawable.ic_player_rotate),
+                    contentDescription = if (state.isPortrait) "旋转到横屏" else "旋转到竖屏",
+                    alpha = if (rotateShown) 1f else 0f,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = edge)
+                        .offset(y = -halfGap)
+                        .size(24.dp)
+                        .then(
+                            if (rotateShown) {
+                                Modifier.pointerInput(Unit) {
+                                    detectTapGestures(onTap = { actions.onRotateClicked() })
+                                }
+                            } else {
+                                Modifier
+                            }
+                        )
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 长按倍速浮层(替代 play_speed_3_container / fromLongPress;倍率设置页可调 2x~10x)。
+ *
+ * 样式与其他提示浮层统一(2026-09-13 用户要求):复用 [HintPill] —— 与控制条进度提示
+ * ([PlayerSeekHint])完全同款的半透明 surface 药丸,不再用旧的纯黑圆角底 `#66000000` + 白字;
+ * 文字色随主题 `onSurface`,字号用 play 模块的 ts_26 档(与中央提示同级)。
+ */
+@Composable
+fun PlayerSpeedBoostHint(state: PlayerUiState) {
+    if (!state.speedBoostVisible) return
+    Box(Modifier.fillMaxSize()) {
+        HintPill(modifier = Modifier.align(Alignment.Center)) {
+            Text(
+                text = "%.1f X".format(state.speedBoostValue),
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = playerTextSize(R.dimen.ts_26),
+                fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+}
