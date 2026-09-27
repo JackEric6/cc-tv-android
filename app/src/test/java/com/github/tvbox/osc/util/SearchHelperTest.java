@@ -63,6 +63,10 @@ public class SearchHelperTest {
     public void searchVerifiedAllowlist_excludesUnverifiedSources() {
         assertTrue(SearchHelper.isSearchVerified("xgzy"));
         assertTrue(SearchHelper.isSearchVerified("yzzy"));
+        assertTrue(SearchHelper.isSearchVerified("ikanbot"));
+        assertTrue(SearchHelper.isSearchVerified("kktvs"));
+        assertTrue(SearchHelper.isSearchVerified("fhw88"));
+        assertTrue(SearchHelper.isSearchVerified("mmov"));
         assertFalse(SearchHelper.isSearchVerified("shandian"));
         assertFalse(SearchHelper.isSearchVerified("sony"));
         assertFalse(SearchHelper.isSearchVerified("yparse"));

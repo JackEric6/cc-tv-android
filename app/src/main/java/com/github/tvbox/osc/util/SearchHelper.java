@@ -29,7 +29,9 @@ public class SearchHelper {
                 "xgzy", "360zy", "jisu", "lzi", "ffzy", "hongniu",
                 "jinying", "guangsu", "huya", "juliang", "iqiyi", "maoyan",
                 "bfzy", "zuida", "yzzy", "haohua", "xinlang", "dyttzy",
-                "ukuzy", "suboziyuan", "bdzy", "dzzy", "ryzy"
+                "ukuzy", "suboziyuan", "bdzy", "dzzy", "ryzy",
+                // Built-in sources with verified search adapters.
+                "ikanbot", "kktvs", "fhw88", "mmov"
         };
         for (String key : verified) SEARCH_VERIFIED_SOURCE_KEYS.add(key);
     }
