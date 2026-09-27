@@ -28,7 +28,8 @@ final class MmovRequestProcess implements RequestProcess {
     private static final String PREFIX = "/mmov";
     private static final String SOURCE_PARAM = "source";
     private static final String USER_AGENT =
-            "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/128 Mobile Safari/537.36";
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    + "Chrome/128.0.0.0 Safari/537.36";
     private static final Pattern VIDEO_SOURCE = Pattern.compile(
             "(?is)\\bvideoSrc\\s*=\\s*['\\\"]([^'\\\"]+)['\\\"]");
 
@@ -232,6 +233,10 @@ final class MmovRequestProcess implements RequestProcess {
         Request request = new Request.Builder().url(url)
                 .header("User-Agent", USER_AGENT)
                 .header("Accept", "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8")
+                .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+                .header("Sec-Fetch-Dest", "document")
+                .header("Sec-Fetch-Mode", "navigate")
+                .header("Sec-Fetch-Site", "same-origin")
                 .header("Referer", origin(url)).build();
         try (Response response = OkHttp.client(20000).newCall(request).execute()) {
             if (!response.isSuccessful() || response.body() == null) throw new IOException("HTTP " + response.code());
@@ -239,8 +244,17 @@ final class MmovRequestProcess implements RequestProcess {
         }
     }
 
-    private String buildUrl(String source, String path) {
-        return HttpUrl.get(source).newBuilder().encodedPath(path).build().toString();
+    static String buildUrl(String source, String path) {
+        HttpUrl.Builder builder = HttpUrl.get(source).newBuilder();
+        int queryIndex = path == null ? -1 : path.indexOf('?');
+        if (queryIndex < 0) {
+            return builder.encodedPath(path == null ? "" : path).build().toString();
+        }
+        return builder
+                .encodedPath(path.substring(0, queryIndex))
+                .encodedQuery(path.substring(queryIndex + 1))
+                .build()
+                .toString();
     }
 
     private String resolve(String source, String path) {
