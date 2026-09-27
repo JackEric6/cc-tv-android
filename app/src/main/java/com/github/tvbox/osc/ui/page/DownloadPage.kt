@@ -304,6 +304,20 @@ private fun DownloadTaskRow(
     var displayedTotalBytes by remember(task.id, currentTask.status) {
         mutableLongStateOf(currentTask.totalBytes)
     }
+    // 列表监听和行内轮询不是同一个时序；轮询已经拿到后台增长的字节时，
+    // 不能因为父列表又传来旧快照，就把行上的大小回退成 0 B。
+    val visibleDownloadedBytes = maxOf(
+        displayedDownloadedBytes,
+        currentTask.downloadedBytes.coerceAtLeast(0L),
+    )
+    val visibleTotalBytes = if (currentTask.totalBytes > 0L) {
+        maxOf(displayedTotalBytes, currentTask.totalBytes)
+    } else {
+        displayedTotalBytes
+    }
+    val visibleSpeed = if (displayedSpeed > 0L) displayedSpeed else {
+        currentTask.speedBytesPerSecond.coerceAtLeast(0L)
+    }
 
     // TaskListener 的回调频率受下载核心节流影响，不能作为下载页唯一的数据源。
     // 页面每秒读取一次最新快照，并直接用 downloadedBytes 的增量计算速度，避免核心层
@@ -437,19 +451,19 @@ private fun DownloadTaskRow(
                 Spacer(Modifier.weight(1f))
                 if (active) {
                     Text(
-                        text = if (displayedSpeed > 0) formatDownloadSpeed(displayedSpeed) else "等待速度",
+                        text = if (visibleSpeed > 0) formatDownloadSpeed(visibleSpeed) else "等待速度",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
             val estimatedTotalBytes = estimateTotalBytes(
-                displayedDownloadedBytes,
-                displayedTotalBytes,
+                visibleDownloadedBytes,
+                visibleTotalBytes,
                 percent,
             )
             Text(
-                text = formatDownloadSize(displayedDownloadedBytes, displayedTotalBytes, estimatedTotalBytes),
+                text = formatDownloadSize(visibleDownloadedBytes, visibleTotalBytes, estimatedTotalBytes),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,

@@ -162,6 +162,10 @@ final class OfflineHlsTransformer {
             OfflineVideoCache.unregisterActive(key, handle);
             return;
         }
+        // 从这里开始任务已经拿到真实下载槽位，即使播放列表或首个分片仍在网络等待，
+        // 也不能继续显示为“排队中”。否则后台已经工作时 UI 会长时间停在 0 B。
+        // 直接分片续传稍后会用 markDownloadingForResume 保留已落盘字节。
+        OfflineVideoCache.markDownloadingForResume(context, key, -1, handle);
         AtomicBoolean slotReleased = new AtomicBoolean(false);
         Runnable releaseSlot = () -> {
             if (slotReleased.compareAndSet(false, true)) OfflineVideoCache.releaseDownloadSlot();
