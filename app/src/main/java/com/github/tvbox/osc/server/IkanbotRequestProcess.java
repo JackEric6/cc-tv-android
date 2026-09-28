@@ -13,6 +13,7 @@ import org.jsoup.select.Elements;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -20,6 +21,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import fi.iki.elonen.NanoHTTPD;
+import okhttp3.Cookie;
+import okhttp3.CookieJar;
 import okhttp3.HttpUrl;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -28,8 +31,41 @@ import okhttp3.Response;
 final class IkanbotRequestProcess implements RequestProcess {
     private static final String PREFIX = "/ikanbot";
     private static final String SOURCE_PARAM = "source";
-    private static final String USER_AGENT = "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36";
+    private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
     private static final Pattern YEAR_PATTERN = Pattern.compile("(?:19|20)\\d{2}");
+    private static final CookieJar COOKIE_JAR = new CookieJar() {
+        private final List<Cookie> cookies = new ArrayList<>();
+
+        @Override
+        public synchronized void saveFromResponse(HttpUrl url, List<Cookie> received) {
+            long now = System.currentTimeMillis();
+            cookies.removeIf(cookie -> cookie.expiresAt() <= now
+                    || cookie.domain().equals(url.host()) && sameCookie(cookie, received));
+            for (Cookie cookie : received) {
+                if (cookie.expiresAt() > now) cookies.add(cookie);
+            }
+        }
+
+        @Override
+        public synchronized List<Cookie> loadForRequest(HttpUrl url) {
+            long now = System.currentTimeMillis();
+            cookies.removeIf(cookie -> cookie.expiresAt() <= now);
+            List<Cookie> matching = new ArrayList<>();
+            for (Cookie cookie : cookies) {
+                if (cookie.matches(url)) matching.add(cookie);
+            }
+            return matching.isEmpty() ? Collections.emptyList() : matching;
+        }
+
+        private boolean sameCookie(Cookie oldCookie, List<Cookie> received) {
+            for (Cookie cookie : received) {
+                if (oldCookie.name().equals(cookie.name())
+                        && oldCookie.domain().equals(cookie.domain())
+                        && oldCookie.path().equals(cookie.path())) return true;
+            }
+            return false;
+        }
+    };
 
     @Override
     public boolean isRequest(NanoHTTPD.IHTTPSession session, String fileName) {
@@ -122,10 +158,11 @@ final class IkanbotRequestProcess implements RequestProcess {
         String eToken = attr(document.getElementById("e_token"), "value");
         String mtype = attr(document.getElementById("mtype"), "value");
         String token = IkanbotCmsParser.buildToken(id, eToken);
+        String detailUrl = buildUrl(source, "/play/" + id);
         List<IkanbotCmsParser.PlaySource> sources = token.isEmpty()
                 ? new ArrayList<>()
                 : IkanbotCmsParser.parsePlaySources(fetch(buildUrl(source, "/api/getResN",
-                "videoId", id, "mtype", mtype, "token", token)));
+                "videoId", id, "mtype", mtype, "token", token), detailUrl, true));
         addPlayData(vod, sources);
 
         JsonArray list = new JsonArray();
@@ -186,18 +223,38 @@ final class IkanbotRequestProcess implements RequestProcess {
     }
 
     private String fetch(String url) throws IOException {
-        Request request = new Request.Builder()
+        return fetch(url, url, false);
+    }
+
+    private String fetch(String url, String referer, boolean ajax) throws IOException {
+        Request.Builder request = new Request.Builder()
                 .url(url)
                 .header("User-Agent", USER_AGENT)
-                .header("Accept", "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8")
-                .header("Referer", url)
-                .build();
-        try (Response response = OkHttp.client(20000).newCall(request).execute()) {
+                .header("Accept", ajax
+                        ? "application/json, text/plain, */*"
+                        : "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8")
+                .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+                .header("Referer", referer)
+                .header("Sec-Fetch-Dest", ajax ? "empty" : "document")
+                .header("Sec-Fetch-Mode", ajax ? "cors" : "navigate")
+                .header("Sec-Fetch-Site", "same-origin");
+        if (ajax) {
+            request.header("Origin", origin(url))
+                    .header("X-Requested-With", "XMLHttpRequest");
+        }
+        try (Response response = OkHttp.client(20000).newBuilder()
+                .cookieJar(COOKIE_JAR).build().newCall(request.build()).execute()) {
             if (!response.isSuccessful() || response.body() == null) {
-                throw new IOException("HTTP " + response.code());
+                throw new IOException("HTTP " + response.code() + " at "
+                        + HttpUrl.get(url).encodedPath());
             }
             return response.body().string();
         }
+    }
+
+    private String origin(String url) {
+        HttpUrl parsed = HttpUrl.get(url);
+        return parsed.scheme() + "://" + parsed.host();
     }
 
     private String buildUrl(String source, String path, String... query) {

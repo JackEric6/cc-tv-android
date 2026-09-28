@@ -103,9 +103,7 @@ public class RemoteServer extends NanoHTTPD {
         // CMS 请求先按 source key/API 特征选择专属适配器；未知源由兼容适配器兜底。
         getRequestList.add(new DedicatedCmsRequestProcess());
         getRequestList.add(new CmsRequestProcess());
-        getRequestList.add(new KktvsRequestProcess());
         getRequestList.add(new IkanbotRequestProcess());
-        getRequestList.add(new MmovRequestProcess());
         getRequestList.add(new CacheRequestProcess());
     }
 

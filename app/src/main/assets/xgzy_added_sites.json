@@ -13,18 +13,6 @@
       "icon": "https://www1.ikanbot.com/resources/logo.svg"
     },
     {
-      "key": "kktvs",
-      "name": "KKT影视",
-      "type": 1,
-      "api": "http://127.0.0.1:9978/kktvs?source=https%3A%2F%2Fwww.kktvs.com%2Fapi.php%2Fprovide%2Fvod%2F",
-      "searchable": 1,
-      "quickSearch": 1,
-      "changeable": 1,
-      "filterable": 1,
-      "timeout": 25,
-      "icon": "https://www.kktvs.com/favicon.ico"
-    },
-    {
       "key": "fhw88",
       "name": "鑫同",
       "type": 1,
@@ -35,18 +23,6 @@
       "filterable": 1,
       "timeout": 25,
       "icon": "https://www.fhw88.com.cn/favicon.ico"
-    },
-    {
-      "key": "mmov",
-      "name": "MMOV线上看",
-      "type": 1,
-      "api": "http://127.0.0.1:9978/mmov?source=https%3A%2F%2Fvn.mmov.app",
-      "searchable": 1,
-      "quickSearch": 1,
-      "changeable": 1,
-      "filterable": 0,
-      "timeout": 25,
-      "icon": "https://vn.mmov.app/logo.webp"
     }
   ]
 }
