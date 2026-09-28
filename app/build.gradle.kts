@@ -19,8 +19,8 @@ android {
         applicationId = "com.github.avbox.osc.xgzy"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 21
-        versionName = "1.0.20-xgzy"
+        versionCode = 22
+        versionName = "1.0.21-xgzy"
         multiDexEnabled = true
         ndk {
             abiFilters += setOf("arm64-v8a")
@@ -115,7 +115,7 @@ androidComponents {
     onVariants { variant ->
         val buildStamp = System.currentTimeMillis()
         variant.outputs.forEach { output ->
-            output.outputFileName.set("丛丛影视_多源追加版_${variant.buildType}_v1.0.20-xgzy_${buildStamp}.apk")
+            output.outputFileName.set("丛丛影视_多源追加版_${variant.buildType}_v1.0.21-xgzy_${buildStamp}.apk")
         }
     }
 }

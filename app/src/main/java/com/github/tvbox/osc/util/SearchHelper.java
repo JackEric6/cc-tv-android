@@ -31,7 +31,12 @@ public class SearchHelper {
                 "bfzy", "zuida", "yzzy", "haohua", "xinlang", "dyttzy",
                 "ukuzy", "suboziyuan", "bdzy", "dzzy", "ryzy",
                 // Built-in sources with verified search adapters.
-                "ikanbot", "fhw88"
+                "ikanbot", "fhw88",
+                // Web CMS sources bundled with this APK.
+                "qiumu", "beike", "meitan", "jingyan", "kaida", "shuicao",
+                "hongguo", "laoniu", "ningmeng", "xingchen", "qingpingguo",
+                "zhongxing", "haier", "huilv", "shiji", "cechi", "kuaikan",
+                "wushuang", "zanpian", "ys88"
         };
         for (String key : verified) SEARCH_VERIFIED_SOURCE_KEYS.add(key);
     }
