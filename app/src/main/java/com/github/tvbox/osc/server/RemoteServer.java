@@ -100,6 +100,7 @@ public class RemoteServer extends NanoHTTPD {
 
     private void addGetRequestProcess() {
         getRequestList.add(new XgzyRequestProcess());
+        getRequestList.add(new GuaziPlayRequestProcess());
         // CMS 请求先按 source key/API 特征选择专属适配器；未知源由兼容适配器兜底。
         getRequestList.add(new DedicatedCmsRequestProcess());
         getRequestList.add(new CmsRequestProcess());
