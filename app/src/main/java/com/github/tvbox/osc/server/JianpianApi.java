@@ -11,7 +11,9 @@ import com.google.gson.JsonParser;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -25,8 +27,14 @@ import okhttp3.Response;
 final class JianpianApi {
     private static final String INSTALLATION_KEY = "jianpian_installation_id";
     private static final String CREDENTIAL_KEY = "jianpian_runtime_credential";
+    private static final String ORIGIN_KEY = "jianpian_api_origin";
+    private static final String DISCOVERY_KEY = "jianpian_api_discovery";
+    private static final String DISCOVERY_AT_KEY = "jianpian_api_discovery_at";
+    private static final long DISCOVERY_TTL_MS = 6L * 60L * 60L * 1000L;
     private static final JianpianApi INSTANCE = new JianpianApi();
     private static final Object ID_LOCK = new Object();
+    private static final Object ORIGIN_LOCK = new Object();
+    private volatile List<String> cachedOrigins = Collections.emptyList();
 
     private JianpianApi() {
     }
@@ -67,6 +75,14 @@ final class JianpianApi {
                   String episodeKey,
                   String episodeIndex,
                   String lineKey) throws IOException {
+        return access(workId, episodeKey, episodeIndex, lineKey, "playback");
+    }
+
+    String access(String workId,
+                  String episodeKey,
+                  String episodeIndex,
+                  String lineKey,
+                  String deliveryType) throws IOException {
         JsonObject body = new JsonObject();
         try {
             body.addProperty("work_id", Integer.parseInt(workId));
@@ -82,7 +98,8 @@ final class JianpianApi {
             }
         }
         body.addProperty("preferred_line_key", lineKey);
-        body.addProperty("delivery_type", "playback");
+        body.addProperty("delivery_type", deliveryType == null || deliveryType.isEmpty()
+                ? "playback" : deliveryType);
         JsonObject result = request("POST", "/media/access", null, body);
         String url = findString(result, "url", "play_url", "playback_url", "media_url");
         if (url.isEmpty()) throw new IOException("荐片播放接口没有返回媒体地址");
@@ -93,8 +110,34 @@ final class JianpianApi {
                                String path,
                                Map<String, String> query,
                                JsonObject body) throws IOException {
+        IOException last = null;
+        List<String> origins = origins();
+        for (String origin : origins) {
+            try {
+                JsonObject result = requestOnce(origin, method, path, query, body);
+                rememberOrigin(origin);
+                return result;
+            } catch (JianpianHttpException exception) {
+                last = exception;
+                if (!JianpianOriginResolver.shouldFailover(exception.statusCode)) throw exception;
+            } catch (IOException exception) {
+                last = exception;
+            }
+        }
+        if (last != null) {
+            throw new IOException("荐片接口请求失败，已尝试 " + origins.size() + " 个 API 域名: "
+                    + last.getMessage(), last);
+        }
+        throw new IOException("荐片没有可用 API 域名");
+    }
+
+    private JsonObject requestOnce(String origin,
+                                   String method,
+                                   String path,
+                                   Map<String, String> query,
+                                   JsonObject body) throws IOException {
         try {
-            HttpUrl.Builder urlBuilder = HttpUrl.get(JianpianCrypto.BASE_URL + "/api/v1" + path).newBuilder();
+            HttpUrl.Builder urlBuilder = HttpUrl.get(origin + "/api/v1" + path).newBuilder();
             if (query != null) {
                 for (Map.Entry<String, String> entry : query.entrySet()) {
                     if (entry.getValue() != null) urlBuilder.addQueryParameter(entry.getKey(), entry.getValue());
@@ -136,7 +179,8 @@ final class JianpianApi {
                 if (response.body() == null) throw new IOException("荐片接口响应为空");
                 String raw = response.body().string();
                 if (!response.isSuccessful()) {
-                    throw new IOException("荐片接口 HTTP " + response.code() + ": " + compactError(raw));
+                    throw new JianpianHttpException(response.code(),
+                            "荐片接口 HTTP " + response.code() + ": " + compactError(raw));
                 }
                 JsonObject outer = JsonParser.parseString(raw).getAsJsonObject();
                 String contentType = response.header("Content-Type", "");
@@ -153,6 +197,53 @@ final class JianpianApi {
             throw exception;
         } catch (Throwable throwable) {
             throw new IOException("荐片接口请求失败: " + throwable.getMessage(), throwable);
+        }
+    }
+
+    private List<String> origins() {
+        synchronized (ORIGIN_LOCK) {
+            long now = System.currentTimeMillis();
+            long discoveredAt = KV.get(DISCOVERY_AT_KEY, 0L);
+            if (cachedOrigins.isEmpty() || now - discoveredAt >= DISCOVERY_TTL_MS) {
+                refreshDiscoveryLocked(now);
+            }
+            String preferred = KV.get(ORIGIN_KEY, "");
+            String discovered = KV.get(DISCOVERY_KEY, "");
+            List<String> result = JianpianOriginResolver.candidates(preferred, discovered);
+            cachedOrigins = result;
+            return result;
+        }
+    }
+
+    private void refreshDiscoveryLocked(long now) {
+        String discovered = KV.get(DISCOVERY_KEY, "");
+        try {
+            Request request = new Request.Builder().url(JianpianOriginResolver.DISCOVERY_URL)
+                    .header("Accept", "text/plain")
+                    .get().build();
+            try (Response response = OkHttp.client(10000).newCall(request).execute()) {
+                if (response.isSuccessful() && response.body() != null) {
+                    String text = response.body().string().trim();
+                    if (!text.isEmpty()) {
+                        discovered = text;
+                        KV.put(DISCOVERY_KEY, discovered);
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+            // 发现服务不可用时继续使用上一次结果和内置备用域名。
+        }
+        KV.put(DISCOVERY_AT_KEY, now);
+        cachedOrigins = JianpianOriginResolver.candidates(KV.get(ORIGIN_KEY, ""), discovered);
+    }
+
+    private void rememberOrigin(String origin) {
+        String normalized = JianpianOriginResolver.normalize(origin);
+        if (normalized == null) return;
+        KV.put(ORIGIN_KEY, normalized);
+        synchronized (ORIGIN_LOCK) {
+            cachedOrigins = JianpianOriginResolver.candidates(normalized,
+                    KV.get(DISCOVERY_KEY, ""));
         }
     }
 
@@ -210,5 +301,14 @@ final class JianpianApi {
             }
         }
         return "";
+    }
+
+    private static final class JianpianHttpException extends IOException {
+        final int statusCode;
+
+        JianpianHttpException(int statusCode, String message) {
+            super(message);
+            this.statusCode = statusCode;
+        }
     }
 }

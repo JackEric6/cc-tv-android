@@ -58,6 +58,7 @@ import com.github.tvbox.osc.util.PermissionHelper;
 import com.github.tvbox.osc.util.LOG;
 import com.github.tvbox.osc.util.MD5;
 import com.github.tvbox.osc.util.OfflineVideoCache;
+import com.github.tvbox.osc.util.thunder.Jianpian;
 import com.github.tvbox.osc.util.PlayerHelper;
 import com.github.tvbox.osc.util.SubtitleHelper;
 import com.github.tvbox.osc.util.KV;
@@ -721,6 +722,7 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
         }
         String url = scheduler.webPlayUrl();
         VodInfo vod = scheduler.vod();
+        url = Jianpian.downloadUrlFor(url);
         if (TextUtils.isEmpty(url) || !OfflineVideoCache.isCacheableVodUrl(url)) {
             Toast.makeText(mContext, "当前地址不支持离线缓存", Toast.LENGTH_SHORT).show();
             return;

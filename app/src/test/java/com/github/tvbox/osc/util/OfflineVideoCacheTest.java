@@ -135,6 +135,16 @@ public class OfflineVideoCacheTest {
     }
 
     @Test
+    public void jianpianP2pBridgeUsesRangeDownloaderInsteadOfHlsTransformer() {
+        String bridge = "http://127.0.0.1:9979/jianpian/p2p.m3u8"
+                + "?work_id=4549&episode_key=e43&episode_index=42&line_key=p2p";
+        assertTrue(OfflineVideoCache.isCacheableVodUrl(bridge));
+        assertEquals(".mp4", OfflineVideoCache.explicitMediaExtension(bridge));
+        assertTrue(OfflineHlsTransformer.isHlsVodCandidate(bridge));
+        assertFalse(OfflineVideoCache.shouldUseHlsPrefetch(bridge));
+    }
+
+    @Test
     public void nonMp4MediaKeepsExplicitExtensionWhileTransformedMediaUsesMp4() {
         File keyed = OfflineVideoCache.cachedFileForDirectory(folder.getRoot(), "xgzy", "movie-1",
                 "线路A", 2, "https://cdn.example/vod/episode.ts?token=1");

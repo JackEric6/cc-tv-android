@@ -26,6 +26,7 @@ import com.github.tvbox.osc.ui.theme.AppThemeState
 import com.github.tvbox.osc.util.MusicSettings
 import com.github.tvbox.osc.util.OfflineVideoCache
 import com.github.tvbox.osc.util.PermissionHelper
+import com.github.tvbox.osc.util.thunder.Jianpian
 import kotlinx.coroutines.launch
 import xyz.doikki.videoplayer.player.VideoView
 
@@ -161,7 +162,8 @@ class DetailActivity : BaseActivity(), PageHost {
         indices.distinct().forEach { index ->
             val episode = episodes.getOrNull(index) ?: return@forEach
             val url = episode.url.orEmpty()
-            if (!OfflineVideoCache.isCacheableVodUrl(url)) {
+            val downloadUrl = Jianpian.downloadUrlFor(url)
+            if (!OfflineVideoCache.isCacheableVodUrl(downloadUrl)) {
                 unsupported++
                 return@forEach
             }
@@ -172,7 +174,7 @@ class DetailActivity : BaseActivity(), PageHost {
                 info.id.orEmpty(),
                 playFlag,
                 index,
-                url,
+                downloadUrl,
                 info.name.orEmpty(),
                 episode.name ?: "第${index + 1}集",
                 sourceName,
@@ -183,7 +185,7 @@ class DetailActivity : BaseActivity(), PageHost {
                 info.id.orEmpty(),
                 playFlag,
                 index,
-                url,
+                downloadUrl,
                 null,
             )
             queued++
