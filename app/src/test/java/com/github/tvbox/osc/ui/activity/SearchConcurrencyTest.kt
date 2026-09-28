@@ -2,6 +2,7 @@ package com.github.tvbox.osc.ui.activity
 
 import com.github.tvbox.osc.bean.Movie
 import com.github.tvbox.osc.ui.components.VodImages
+import com.github.tvbox.osc.util.SearchHelper
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -77,6 +78,33 @@ class SearchConcurrencyTest {
         } finally {
             VodImages.setExternalPosterProvider(null, false)
         }
+    }
+
+    @Test
+    fun webCmsSearchResultWithoutPosterIsNotDroppedByUiFilter() {
+        VodImages.setExternalPosterProvider(null, false)
+        val video = Movie.Video().apply {
+            name = "沉默的荣耀"
+            pic = ""
+        }
+
+        assertEquals(
+            1,
+            SearchViewModel.filterSearchVideos(
+                listOf(video),
+                exact = false,
+                title = "沉默的荣耀",
+                allowPosterless = SearchHelper.allowsPosterlessSearchResult("qiumu"),
+            ).size,
+        )
+        assertTrue(
+            SearchViewModel.filterSearchVideos(
+                listOf(video),
+                exact = false,
+                title = "沉默的荣耀",
+                allowPosterless = SearchHelper.allowsPosterlessSearchResult("xgzy"),
+            ).isEmpty(),
+        )
     }
 
     @Test

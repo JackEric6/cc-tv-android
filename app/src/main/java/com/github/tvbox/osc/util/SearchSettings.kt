@@ -64,11 +64,9 @@ object SearchSettings {
         val api = KV.get(HawkConfig.API_URL, "")
         if (api.isEmpty()) return null
         if (isSourcesEmpty()) return emptySet()
-        val stored = KV.get<HashMap<String, HashMap<String, String>>>(HawkConfig.SOURCES_FOR_SEARCH) ?: return null
-        val picked = stored[api] ?: return null
-        val verified = SearchHelper.getSources().keys
-        val filtered = picked.keys.filter { it in verified }.toSet()
-        return if (filtered.isEmpty()) emptySet() else filtered
+        // 统一走 SearchHelper 的迁移读取,把本 APK 新增网页源补入旧的搜索选择。
+        // 无显式选择时返回全部可搜源,等价于原来的 null 语义,但设置页可正确显示为全选。
+        return SearchHelper.getSourcesForSearch()?.keys?.toSet()
     }
 
     /** 写入当前地址的搜索站点选择;空选择=不搜任何站点,覆盖全部可搜源=不限制(删记录) */

@@ -69,4 +69,17 @@ public class SearchHelperTest {
         assertFalse(SearchHelper.isSearchVerified("sony"));
         assertFalse(SearchHelper.isSearchVerified("yparse"));
     }
+
+    @Test
+    public void bundledSourcesAreAddedToAnExistingSearchSelection() {
+        HashMap<String, String> selected = checked("xgzy", "qiumu");
+        HashMap<String, String> merged = SearchHelper.mergeBundledSearchSources(
+                selected, keys("xgzy", "qiumu", "beike", "meitan", "unknown"));
+
+        assertTrue(merged.containsKey("xgzy"));
+        assertTrue(merged.containsKey("qiumu"));
+        assertTrue(merged.containsKey("beike"));
+        assertTrue(merged.containsKey("meitan"));
+        assertFalse(merged.containsKey("unknown"));
+    }
 }

@@ -201,8 +201,12 @@ class SearchViewModel : ViewModel() {
             videos: List<Movie.Video>,
             exact: Boolean,
             title: String,
+            allowPosterless: Boolean = false,
         ): List<Movie.Video> = videos
-            .filter { VodImages.hasValidSearchPoster(it.pic, it.name) }
+            .filter {
+                (allowPosterless && it.pic.isNullOrBlank()) ||
+                    VodImages.hasValidSearchPoster(it.pic, it.name)
+            }
             .filter { !exact || SearchSettings.isExactMatch(it.name, title) }
             .sortedByDescending { it.name?.trim() == title }
 
@@ -514,6 +518,7 @@ class SearchViewModel : ViewModel() {
             data.movie?.videoList.orEmpty(),
             exactMatch.value,
             searchedTitle.value,
+            allowPosterless = SearchHelper.allowsPosterlessSearchResult(sourceKey),
         )
         updateResult(sourceKey, videos)
     }

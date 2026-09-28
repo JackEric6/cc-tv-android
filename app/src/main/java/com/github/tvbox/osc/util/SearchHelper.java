@@ -23,6 +23,9 @@ public class SearchHelper {
      * 源先不进入搜索页，待后续按官网帮助页完成端到端验证后再加入。
      */
     private static final Set<String> SEARCH_VERIFIED_SOURCE_KEYS = new HashSet<>();
+    private static final Set<String> BUNDLED_SEARCH_SOURCE_KEYS = new HashSet<>();
+    private static final Set<String> WEB_CMS_SOURCE_KEYS = new HashSet<>();
+    private static final String BUNDLED_SEARCH_MIGRATION_KEY = "xgzy_bundled_search_sources_v1";
 
     static {
         String[] verified = {
@@ -39,11 +42,33 @@ public class SearchHelper {
                 "wushuang", "zanpian", "ys88"
         };
         for (String key : verified) SEARCH_VERIFIED_SOURCE_KEYS.add(key);
+
+        String[] bundled = {
+                "ikanbot", "fhw88",
+                "qiumu", "beike", "meitan", "jingyan", "kaida", "shuicao",
+                "hongguo", "laoniu", "ningmeng", "xingchen", "qingpingguo",
+                "zhongxing", "haier", "huilv", "shiji", "cechi", "kuaikan",
+                "wushuang", "zanpian", "ys88"
+        };
+        for (String key : bundled) BUNDLED_SEARCH_SOURCE_KEYS.add(key);
+
+        String[] webCms = {
+                "qiumu", "beike", "meitan", "jingyan", "kaida", "shuicao",
+                "hongguo", "laoniu", "ningmeng", "xingchen", "qingpingguo",
+                "zhongxing", "haier", "huilv", "shiji", "cechi", "kuaikan",
+                "wushuang", "zanpian", "ys88"
+        };
+        for (String key : webCms) WEB_CMS_SOURCE_KEYS.add(key);
     }
 
     /** 当前版本经过探测、允许出现在搜索页的源。 */
     public static boolean isSearchVerified(String sourceKey) {
         return sourceKey != null && SEARCH_VERIFIED_SOURCE_KEYS.contains(sourceKey);
+    }
+
+    /** 网页结果已按关键词校验，允许无海报时先显示结果卡片。 */
+    public static boolean allowsPosterlessSearchResult(String sourceKey) {
+        return sourceKey != null && WEB_CMS_SOURCE_KEYS.contains(sourceKey);
     }
 
     /**
@@ -56,19 +81,71 @@ public class SearchHelper {
         try {
             String api = KV.get(HawkConfig.API_URL, "");
             if (api.isEmpty()) return null;
+            HashMap<String, String> allSources = getSources();
+            if (allSources.isEmpty()) return allSources;
+
+            // 不带默认值读取,让 KVKeySpec 按完整嵌套泛型还原 HashMap。
             HashMap<String, HashMap<String, String>> mCheckSourcesForApi =
-                    KV.get(HawkConfig.SOURCES_FOR_SEARCH, new HashMap<>());
-            mCheckSources = mCheckSourcesForApi.get(api);
+                    KV.get(HawkConfig.SOURCES_FOR_SEARCH);
+            mCheckSources = mCheckSourcesForApi == null ? null : mCheckSourcesForApi.get(api);
+            if (mCheckSources == null || mCheckSources.isEmpty()) {
+                markBundledSearchMigration(api);
+                return allSources;
+            }
+
+            String before = mCheckSources.toString();
+            if (!isBundledSearchMigrationApplied(api)) {
+                mCheckSources = mergeBundledSearchSources(mCheckSources, allSources.keySet());
+                if (!before.equals(mCheckSources.toString())) {
+                    mCheckSourcesForApi.put(api, mCheckSources);
+                    KV.put(HawkConfig.SOURCES_FOR_SEARCH, mCheckSourcesForApi);
+                }
+                markBundledSearchMigration(api);
+            }
         } catch (Exception e) {
             return null;
         }
-        if (mCheckSources == null || mCheckSources.isEmpty()) {
-            mCheckSources = getSources();
-        }
-        if (mCheckSources == null) return null;
+
         // 清理旧版本保存的已隐藏源，避免用户切换配置后它们继续参与搜索。
         mCheckSources.keySet().removeIf(key -> !isSearchVerified(key));
         return mCheckSources;
+    }
+
+    /**
+     * 将本 APK 新增的网页源补进旧的显式搜索选择。
+     *
+     * <p>只在迁移版本首次执行时调用，因此用户后续在“搜索设置”里取消某个源不会被反复加回。
+     * 同时清理当前源集合中已经不存在的旧 key。</p>
+     */
+    static HashMap<String, String> mergeBundledSearchSources(
+            HashMap<String, String> selected, Set<String> currentSourceKeys) {
+        HashMap<String, String> merged = new HashMap<>();
+        if (selected != null) {
+            for (String key : selected.keySet()) {
+                if (currentSourceKeys.contains(key) && isSearchVerified(key)) {
+                    merged.put(key, "1");
+                }
+            }
+        }
+        for (String key : BUNDLED_SEARCH_SOURCE_KEYS) {
+            if (currentSourceKeys.contains(key)) merged.put(key, "1");
+        }
+        return merged;
+    }
+
+    private static boolean isBundledSearchMigrationApplied(String api) {
+        String applied = KV.get(BUNDLED_SEARCH_MIGRATION_KEY, "");
+        for (String item : applied.split("\n")) {
+            if (api.equals(item)) return true;
+        }
+        return false;
+    }
+
+    private static void markBundledSearchMigration(String api) {
+        if (isBundledSearchMigrationApplied(api)) return;
+        String applied = KV.get(BUNDLED_SEARCH_MIGRATION_KEY, "");
+        KV.put(BUNDLED_SEARCH_MIGRATION_KEY,
+                applied.isEmpty() ? api : applied + "\n" + api);
     }
 
     /**
