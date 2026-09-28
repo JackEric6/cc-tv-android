@@ -20,6 +20,7 @@ final class CmsAdapterRouter {
     static final String YPARSE_JSON = "yparse-json";
     static final String MAOTAI_JSON = "maotai-json";
     static final String IKUN_JSON = "ikun-json";
+    static final String JIANPIAN = "jianpian";
 
     private CmsAdapterRouter() {
     }
@@ -27,6 +28,7 @@ final class CmsAdapterRouter {
     static CmsAdapter resolve(String sourceKey, String sourceUrl) {
         final String adapterId = adapterId(sourceKey, sourceUrl);
         if ("guazi".equals(adapterId)) return new GuaziAdapter();
+        if (JIANPIAN.equals(adapterId)) return new JianpianAdapter();
         return new LegacyCmsAdapter(adapterId);
     }
 
@@ -35,6 +37,10 @@ final class CmsAdapterRouter {
         String key = lower(sourceKey);
         String host = host(sourceUrl);
         if ("guazi".equals(key) || "guazi".equals(lower(sourceUrl))) return "guazi";
+        if (JIANPIAN.equals(key) || "jianpian".equals(lower(sourceUrl))
+                || "jianpian.com".equals(host) || host.endsWith(".jianpian.com")) {
+            return JIANPIAN;
+        }
         if ("xgzy".equals(key) || host.contains("xgzyapi")) return "xgzy";
         if ("yzzy".equals(key) || "m766".equals(key)
                 || "api.yzzy-api.com".equals(host) || "m766.com".equals(host)) {
