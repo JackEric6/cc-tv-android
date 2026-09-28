@@ -35,20 +35,13 @@ public class SearchHelper {
                 "ukuzy", "suboziyuan", "bdzy", "dzzy", "ryzy",
                 // Built-in sources with verified search adapters.
                 "ikanbot", "fhw88",
-                // Web CMS sources bundled with this APK.
-                "qiumu", "beike", "meitan", "jingyan", "kaida", "shuicao",
-                "hongguo", "laoniu", "ningmeng", "xingchen", "qingpingguo",
-                "zhongxing", "haier", "huilv", "shiji", "cechi", "kuaikan",
-                "wushuang", "zanpian", "ys88"
+                // Web CMS sources verified against live search and detail responses.
+                "qiumu", "beike", "cechi", "zanpian"
         };
         for (String key : verified) SEARCH_VERIFIED_SOURCE_KEYS.add(key);
 
         String[] bundled = {
-                "ikanbot", "fhw88",
-                "qiumu", "beike", "meitan", "jingyan", "kaida", "shuicao",
-                "hongguo", "laoniu", "ningmeng", "xingchen", "qingpingguo",
-                "zhongxing", "haier", "huilv", "shiji", "cechi", "kuaikan",
-                "wushuang", "zanpian", "ys88"
+                "ikanbot", "fhw88", "qiumu", "beike", "cechi", "zanpian"
         };
         for (String key : bundled) BUNDLED_SEARCH_SOURCE_KEYS.add(key);
 

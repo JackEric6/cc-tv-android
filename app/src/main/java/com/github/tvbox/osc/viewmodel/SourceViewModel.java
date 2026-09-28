@@ -1469,6 +1469,26 @@ public class SourceViewModel extends ViewModel {
         if ("juliang".equals(sourceKey)) return "https://juliang.app/";
         if ("yparse".equals(sourceKey)) return "https://yparse.com/";
         if ("ikunzy".equals(sourceKey)) return "https://ikunzy.com/";
+        if ("qiumu".equals(sourceKey)) return "https://old.sliiic.org/";
+        if ("beike".equals(sourceKey)) return "https://www.0451yccz.com/";
+        if ("meitan".equals(sourceKey)) return "https://www.hmjy100.com/";
+        if ("jingyan".equals(sourceKey)) return "https://www.wljingyan.com/";
+        if ("kaida".equals(sourceKey)) return "https://www.kdndt.net/";
+        if ("shuicao".equals(sourceKey)) return "http://www.knshuichuli.com/";
+        if ("hongguo".equals(sourceKey)) return "https://m.syshuoyuan.com/";
+        if ("laoniu".equals(sourceKey)) return "https://shanghai.365che.net/";
+        if ("ningmeng".equals(sourceKey)) return "https://www.nmgflw.com/";
+        if ("xingchen".equals(sourceKey)) return "http://www.chgxdq.com/";
+        if ("qingpingguo".equals(sourceKey)) return "https://yz.sdhfcj.com/";
+        if ("zhongxing".equals(sourceKey)) return "https://www.sczxsx.com/";
+        if ("haier".equals(sourceKey)) return "https://www.nbhaierxin.com/";
+        if ("huilv".equals(sourceKey)) return "https://www.zzhuilv.cn/";
+        if ("shiji".equals(sourceKey)) return "http://m.sjtx-oa.com/";
+        if ("cechi".equals(sourceKey)) return "http://www.lanyajc.com/";
+        if ("kuaikan".equals(sourceKey)) return "http://www.ikang.org/";
+        if ("wushuang".equals(sourceKey)) return "http://www.fjsycjs.com/";
+        if ("zanpian".equals(sourceKey)) return "https://www.zanpian.org/";
+        if ("ys88".equals(sourceKey)) return "https://www.88ystv.com/";
         return "";
     }
 

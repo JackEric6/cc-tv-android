@@ -84,6 +84,12 @@ final class WebCmsRequestProcess implements RequestProcess {
             .readTimeout(18, java.util.concurrent.TimeUnit.SECONDS)
             .writeTimeout(12, java.util.concurrent.TimeUnit.SECONDS)
             .build();
+    private static final OkHttpClient DISCOVERY_CLIENT = CLIENT.newBuilder()
+            .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+            .callTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+            .build();
     private static final OkHttpClient SEARCH_CLIENT = CLIENT.newBuilder()
             .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
             .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
@@ -155,24 +161,45 @@ final class WebCmsRequestProcess implements RequestProcess {
     private String search(String source, String profile, String keyword, String page) throws IOException {
         int currentPage = parsePage(page);
         List<SearchRequest> requests = new ArrayList<>();
-        if (!"zanpian".equals(profile)) {
+        boolean searchDisabled = false;
+        boolean searchBlocked = false;
+        boolean discoverAfterKnownRoutes = "zanpian".equals(profile);
+        if (!discoverAfterKnownRoutes) {
             try {
-                SearchRequest discovered = discoverSearchRequest(source, keyword, currentPage, profile);
-                if (discovered != null) requests.add(discovered);
+                requests.addAll(discoverSearchRequests(source, keyword, currentPage, profile));
             } catch (IOException error) {
                 // 某些源拦截入口页，继续尝试该 CMS 的常见搜索路由。
                 Log.w(TAG, "search-discovery host=" + sourceHost(source)
                         + " error=" + safeMessage(error));
+                if (isBlockedSearchFailure(safeMessage(error))) searchBlocked = true;
             }
         }
         requests.addAll(buildSearchRequests(profile, keyword, currentPage));
         Set<String> attempted = new HashSet<>();
-        for (SearchRequest request : requests) {
+        for (int index = 0; ; index++) {
+            if (index >= requests.size()) {
+                if (!discoverAfterKnownRoutes) break;
+                discoverAfterKnownRoutes = false;
+                try {
+                    requests.addAll(discoverSearchRequests(
+                            source, keyword, currentPage, profile));
+                } catch (IOException error) {
+                    Log.w(TAG, "search-discovery host=" + sourceHost(source)
+                            + " error=" + safeMessage(error));
+                    if (isBlockedSearchFailure(safeMessage(error))) searchBlocked = true;
+                }
+                continue;
+            }
+            SearchRequest request = requests.get(index);
             String signature = request.method + " "
                     + resolve(source, request.path) + " " + request.form;
             if (!attempted.add(signature)) continue;
             try {
                 Document document = fetchDocument(source, request);
+                if (isSearchDisabledPage(document)) {
+                    searchDisabled = true;
+                    continue;
+                }
                 JsonArray list = parseCards(document, profile, keyword);
                 if (list.size() > 0) return pageJson(list, currentPage);
                 Log.i(TAG, "search-empty host=" + sourceHost(source)
@@ -183,9 +210,20 @@ final class WebCmsRequestProcess implements RequestProcess {
                 // 不能把异常页面交给宽泛解析器，更不能用首页推荐伪造搜索结果。
                 Log.w(TAG, "search-failed host=" + sourceHost(source)
                         + " error=" + safeMessage(error));
+                if (isBlockedSearchFailure(safeMessage(error))) searchBlocked = true;
             }
         }
+        if (searchDisabled) return error("该源站已关闭站内搜索", currentPage);
+        if (searchBlocked) return error("源站触发安全验证或 HTTP 403，当前无法读取搜索结果", currentPage);
         return pageJson(new JsonArray(), currentPage);
+    }
+
+    static boolean isBlockedSearchFailure(String message) {
+        if (message == null) return false;
+        String normalized = message.toLowerCase(Locale.ROOT);
+        return normalized.contains("站点安全验证或拦截")
+                || normalized.contains("http 403")
+                || normalized.contains("access denied");
     }
 
     private String sourceHost(String source) {
@@ -196,75 +234,104 @@ final class WebCmsRequestProcess implements RequestProcess {
         }
     }
 
-    private SearchRequest discoverSearchRequest(String source, String keyword, int page,
-                                                String profile) throws IOException {
-        Document landing = fetchDocument(source, getSearchRequest("/"));
-        return buildSearchRequestFromForm(landing, source, keyword, page, profile);
+    private List<SearchRequest> discoverSearchRequests(String source, String keyword, int page,
+                                                        String profile) throws IOException {
+        Document landing = fetchDocument(source, getSearchRequest("/"), DISCOVERY_CLIENT);
+        return buildSearchRequestsFromForms(landing, source, keyword, page, profile);
     }
 
     static SearchRequest buildSearchRequestFromForm(Document document, String source,
                                                     String keyword, int page, String profile) {
-        if (document == null) return null;
-        String[] searchFields = {"wd", "searchword", "keyword", "kw", "q"};
+        List<SearchRequest> requests =
+                buildSearchRequestsFromForms(document, source, keyword, page, profile);
+        return requests.isEmpty() ? null : requests.get(0);
+    }
+
+    static List<SearchRequest> buildSearchRequestsFromForms(Document document, String source,
+                                                            String keyword, int page,
+                                                            String profile) {
+        List<SearchRequest> requests = new ArrayList<>();
+        if (document == null) return requests;
         for (Element form : document.select("form")) {
-            String searchField = "";
-            for (String field : searchFields) {
-                if (form.selectFirst("input[name=" + field + "], textarea[name=" + field + "]") != null) {
-                    searchField = field;
+            SearchRequest request = buildSearchRequestFromForm(
+                    form, source, keyword, page, profile);
+            if (request != null) requests.add(request);
+        }
+        return requests;
+    }
+
+    private static SearchRequest buildSearchRequestFromForm(Element form, String source,
+                                                            String keyword, int page,
+                                                            String profile) {
+        if (form == null) return null;
+        String searchField = "";
+        for (Element field : form.select("input[name], textarea[name]")) {
+            String name = field.attr("name").trim();
+            if (isSearchFieldName(name)) {
+                searchField = name;
+                break;
+            }
+        }
+        if (searchField.isEmpty()) return null;
+
+        LinkedHashMap<String, String> values = new LinkedHashMap<>();
+        for (Element field : form.select("input[name], textarea[name], select[name]")) {
+            if (field.hasAttr("disabled")) continue;
+            String name = field.attr("name").trim();
+            if (name.isEmpty()) continue;
+            String type = field.attr("type").toLowerCase(Locale.ROOT);
+            if ("submit".equals(type) || "button".equals(type) || "image".equals(type)
+                    || "reset".equals(type) || "file".equals(type)) continue;
+            if (("checkbox".equals(type) || "radio".equals(type))
+                    && !field.hasAttr("checked")) continue;
+            String value = field.tagName().equals("textarea")
+                    ? field.text().trim() : field.attr("value").trim();
+            if (field.tagName().equals("select")) {
+                Element option = field.selectFirst("option[selected]");
+                if (option == null) option = field.selectFirst("option");
+                value = option == null ? "" : option.hasAttr("value")
+                        ? option.attr("value") : option.text();
+            }
+            if (name.equals(searchField)) value = keyword == null ? "" : keyword;
+            if (!value.isEmpty() || name.equals(searchField)) values.put(name, value);
+        }
+        if (values.isEmpty()) return null;
+
+        String action = form.attr("action").trim();
+        String target = action.isEmpty() ? source : resolveUrl(source, action);
+        String method = form.attr("method").trim().toUpperCase(Locale.ROOT);
+        if (method.isEmpty()) method = "GET";
+        if (page > 1 && !values.containsKey("pg")
+                && !values.containsKey("page") && !values.containsKey("p")) {
+            values.put("fed".equals(profile) ? "page" : "pg", String.valueOf(page));
+        } else {
+            for (String pageField : new String[]{"pg", "page", "p"}) {
+                if (values.containsKey(pageField)) {
+                    values.put(pageField, String.valueOf(page));
                     break;
                 }
             }
-            if (searchField.isEmpty()) continue;
-
-            LinkedHashMap<String, String> values = new LinkedHashMap<>();
-            for (Element field : form.select("input[name], textarea[name], select[name]")) {
-                if (field.hasAttr("disabled")) continue;
-                String name = field.attr("name").trim();
-                if (name.isEmpty()) continue;
-                String type = field.attr("type").toLowerCase(Locale.ROOT);
-                if ("submit".equals(type) || "button".equals(type) || "image".equals(type)
-                        || "reset".equals(type) || "file".equals(type)) continue;
-                if (("checkbox".equals(type) || "radio".equals(type))
-                        && !field.hasAttr("checked")) continue;
-                String value = field.tagName().equals("textarea")
-                        ? field.text().trim() : field.attr("value").trim();
-                if (field.tagName().equals("select")) {
-                    Element option = field.selectFirst("option[selected]");
-                    if (option == null) option = field.selectFirst("option");
-                    value = option == null ? "" : option.hasAttr("value")
-                            ? option.attr("value") : option.text();
-                }
-                if (name.equals(searchField)) value = keyword == null ? "" : keyword;
-                if (!value.isEmpty() || name.equals(searchField)) values.put(name, value);
-            }
-            if (values.isEmpty()) continue;
-
-            String action = form.attr("action").trim();
-            String target = action.isEmpty() ? source : resolveUrl(source, action);
-            String method = form.attr("method").trim().toUpperCase(Locale.ROOT);
-            if (method.isEmpty()) method = "GET";
-            if (page > 1 && !values.containsKey("pg")
-                    && !values.containsKey("page") && !values.containsKey("p")) {
-                values.put("fed".equals(profile) ? "page" : "pg", String.valueOf(page));
-            } else {
-                for (String pageField : new String[]{"pg", "page", "p"}) {
-                    if (values.containsKey(pageField)) {
-                        values.put(pageField, String.valueOf(page));
-                        break;
-                    }
-                }
-            }
-            if ("GET".equals(method)) {
-                HttpUrl.Builder url = HttpUrl.get(target).newBuilder();
-                for (Map.Entry<String, String> entry : values.entrySet()) {
-                    url.removeAllQueryParameters(entry.getKey());
-                    url.addQueryParameter(entry.getKey(), entry.getValue());
-                }
-                return getSearchRequest(url.build().toString());
-            }
-            return new SearchRequest(method, target, values);
         }
-        return null;
+        if ("GET".equals(method)) {
+            HttpUrl.Builder url = HttpUrl.get(target).newBuilder();
+            for (Map.Entry<String, String> entry : values.entrySet()) {
+                url.removeAllQueryParameters(entry.getKey());
+                url.addQueryParameter(entry.getKey(), entry.getValue());
+            }
+            return getSearchRequest(url.build().toString());
+        }
+        return new SearchRequest(method, target, values);
+    }
+
+    private static boolean isSearchFieldName(String name) {
+        if (name == null) return false;
+        String normalized = name.trim().toLowerCase(Locale.ROOT);
+        if (normalized.endsWith("[]")) {
+            normalized = normalized.substring(0, normalized.length() - 2);
+        }
+        return "wd".equals(normalized) || "searchword".equals(normalized)
+                || "keyword".equals(normalized) || "kw".equals(normalized)
+                || "q".equals(normalized);
     }
 
     private static String resolveUrl(String base, String path) {
@@ -388,11 +455,13 @@ final class WebCmsRequestProcess implements RequestProcess {
         LinkedHashMap<String, LinkedHashMap<String, String>> episodesByLine =
                 new LinkedHashMap<>();
         if (document == null) return episodesByLine;
+        String detailContentId = detailContentId(detailUrl);
         Elements playable = document.select("a[href]");
         for (Element link : playable) {
             String href = link.attr("href").trim();
             if (!isPlayablePage(href, profile)) continue;
             String absolute = resolve(detailUrl, href);
+            if (!isSameDetailContent(absolute, detailContentId)) continue;
             String playUrl = withoutFragment(absolute);
             if (!playUrl.equals(detailUrl)) {
                 String lineId = playbackLineId(playUrl);
@@ -416,6 +485,29 @@ final class WebCmsRequestProcess implements RequestProcess {
         return episodesByLine;
     }
 
+    private String detailContentId(String detailUrl) {
+        try {
+            java.util.regex.Matcher matcher = java.util.regex.Pattern
+                    .compile("/(\\d+)\\.html/?$")
+                    .matcher(HttpUrl.get(detailUrl).encodedPath());
+            return matcher.find() ? matcher.group(1) : "";
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
+    private boolean isSameDetailContent(String playUrl, String detailContentId) {
+        if (detailContentId.isEmpty()) return true;
+        try {
+            java.util.regex.Matcher matcher = java.util.regex.Pattern.compile(
+                    "/(?:playmov|play|vodplay)/(\\d+)-\\d+-\\d+(?:\\.html)?/?$")
+                    .matcher(HttpUrl.get(playUrl).encodedPath());
+            return !matcher.find() || detailContentId.equals(matcher.group(1));
+        } catch (Throwable ignored) {
+            return true;
+        }
+    }
+
     private String playbackLineId(String url) {
         try {
             String path = HttpUrl.get(url).encodedPath();
@@ -429,6 +521,8 @@ final class WebCmsRequestProcess implements RequestProcess {
     }
 
     static String resolveDetailTitle(String candidate, String pageTitle, String content) {
+        String quotedTitle = inferQuotedTitleFromContent(content);
+        if (!quotedTitle.isEmpty()) return quotedTitle;
         String normalizedContent = normalizeSearchText(content);
         String title = cleanTitle(candidate);
         if (!title.isEmpty() && normalizedContent.contains(normalizeSearchText(title))) {
@@ -449,12 +543,23 @@ final class WebCmsRequestProcess implements RequestProcess {
 
     private static String inferTitleFromContent(String content) {
         if (content == null || content.trim().isEmpty()) return "";
+        String cleaned = cleanTitle(content);
+        String quotedTitle = inferQuotedTitleFromContent(cleaned);
+        if (!quotedTitle.isEmpty()) return quotedTitle;
         java.util.regex.Matcher matcher = java.util.regex.Pattern.compile(
                 "^(.{2,40}?)(?:于(?:19|20)\\d{2}播出|免费在线观看|在线播放|"
                         + "剧情简介\\s*[:：]?|剧情介绍\\s*[:：]?)")
-                .matcher(cleanTitle(content));
+                .matcher(cleaned);
         if (!matcher.find()) return "";
         return matcher.group(1).replaceAll("^[《【\\s]+|[》】\\s]+$", "").trim();
+    }
+
+    private static String inferQuotedTitleFromContent(String content) {
+        if (content == null || content.trim().isEmpty()) return "";
+        java.util.regex.Matcher quoted = java.util.regex.Pattern.compile(
+                "[《【「『]([^》】」』]{2,40})[》】」』]")
+                .matcher(cleanTitle(content));
+        return quoted.find() ? cleanTitle(quoted.group(1)) : "";
     }
 
     JsonArray parseCards(Document document, String profile, String keyword) {
@@ -560,6 +665,7 @@ final class WebCmsRequestProcess implements RequestProcess {
         String text = (document.title() + " " + document.text()).toLowerCase(Locale.ROOT);
         String[] markers = {
                 "系统安全验证", "请输入验证码", "访问验证", "请完成验证",
+                "身份验证", "安全验证", "滑动验证",
                 "captcha", "cloudflare", "just a moment", "attention required",
                 "403 forbidden", "access denied", "checking your browser"
         };
@@ -567,6 +673,14 @@ final class WebCmsRequestProcess implements RequestProcess {
             if (text.contains(marker)) return true;
         }
         return false;
+    }
+
+    static boolean isSearchDisabledPage(Document document) {
+        if (document == null) return false;
+        String text = (document.title() + " " + document.text()).toLowerCase(Locale.ROOT);
+        return text.contains("搜索功能关闭中")
+                || text.contains("搜索功能已关闭")
+                || text.contains("搜索暂未开放");
     }
 
     static boolean containsSearchKeyword(String title, String context, String keyword) {
@@ -695,6 +809,11 @@ final class WebCmsRequestProcess implements RequestProcess {
     }
 
     private Document fetchDocument(String source, SearchRequest searchRequest) throws IOException {
+        return fetchDocument(source, searchRequest, SEARCH_CLIENT);
+    }
+
+    private Document fetchDocument(String source, SearchRequest searchRequest, OkHttpClient client)
+            throws IOException {
         String url = resolve(source, searchRequest.path);
         Request.Builder requestBuilder = new Request.Builder()
                 .url(url)
@@ -717,9 +836,9 @@ final class WebCmsRequestProcess implements RequestProcess {
             requestBuilder.get();
         }
         Request request = requestBuilder.build();
-        if (!searchRequest.htmlInJson) return executeDocument(url, request, SEARCH_CLIENT);
+        if (!searchRequest.htmlInJson) return executeDocument(url, request, client);
 
-        try (Response response = SEARCH_CLIENT.newCall(request).execute()) {
+        try (Response response = client.newCall(request).execute()) {
             if (!response.isSuccessful() || response.body() == null) {
                 throw new IOException("HTTP " + response.code());
             }
@@ -812,11 +931,15 @@ final class WebCmsRequestProcess implements RequestProcess {
     }
 
     private String error(String message) {
+        return error(message, 1);
+    }
+
+    private String error(String message, int page) {
         JsonObject root = new JsonObject();
         root.addProperty("code", 0);
         root.addProperty("msg", message);
-        root.addProperty("page", 1);
-        root.addProperty("pagecount", 1);
+        root.addProperty("page", page);
+        root.addProperty("pagecount", page);
         root.addProperty("limit", 20);
         root.addProperty("total", 0);
         root.add("list", new JsonArray());
@@ -859,9 +982,20 @@ final class WebCmsRequestProcess implements RequestProcess {
     }
 
     private String imageOf(Element link, Element card) {
-        Element image = link.selectFirst("img");
-        if (image == null && card != null) image = card.selectFirst("img");
-        return image == null ? "" : imageAttr(image);
+        String image = imageFrom(link);
+        return !image.isEmpty() || card == null ? image : imageFrom(card);
+    }
+
+    private String imageFrom(Element container) {
+        if (container == null) return "";
+        String image = imageAttr(container);
+        if (!image.isEmpty()) return image;
+        for (Element candidate : container.select(
+                "img, [data-original], [data-src], [data-lazy]")) {
+            image = imageAttr(candidate);
+            if (!image.isEmpty()) return image;
+        }
+        return "";
     }
 
     private String imageAttr(Element image) {

@@ -94,6 +94,121 @@ public class WebCmsRequestProcessTest {
     }
 
     @Test
+    public void discoversBeikeSearchFormRoute() {
+        WebCmsRequestProcess.SearchRequest request =
+                WebCmsRequestProcess.buildSearchRequestFromForm(
+                        Jsoup.parse("<form method='get' action='/vod/search/'>"
+                                + "<input name='wd'></form>",
+                                "https://www.0451yccz.com/"),
+                        "https://www.0451yccz.com/", "沉默的荣耀", 1, "maccms");
+
+        assertEquals("https://www.0451yccz.com/vod/search/?wd=%E6%B2%89%E9%BB%98%E7%9A%84%E8%8D%A3%E8%80%80",
+                request.path);
+    }
+
+    @Test
+    public void extractsBeikePosterFromLazyloadContainer() {
+        WebCmsRequestProcess process = new WebCmsRequestProcess();
+        JsonArray result = process.parseCards(Jsoup.parse(
+                "<html><head><title>搜索结果</title></head><body>"
+                        + "<div id='searchList'><div class='module-search-item'>"
+                        + "<a href='/voddetail/772.html' title='沉默的荣耀'>"
+                        + "<div class='module-item-pic'><div class='lazyload' "
+                        + "data-original='https://img.example/chenmo.jpg'></div></div>"
+                        + "</a></div></div></body></html>",
+                "https://www.0451yccz.com/vod/search/?wd=%E6%B2%89%E9%BB%98%E7%9A%84%E8%8D%A3%E8%80%80"),
+                "maccms", "沉默的荣耀");
+
+        assertEquals(1, result.size());
+        assertEquals("https://img.example/chenmo.jpg",
+                result.get(0).getAsJsonObject().get("vod_pic").getAsString());
+    }
+
+    @Test
+    public void discoversAllSearchFormsAndKeepsGetAndPostFallbacks() {
+        List<WebCmsRequestProcess.SearchRequest> requests =
+                WebCmsRequestProcess.buildSearchRequestsFromForms(
+                        Jsoup.parse("<form method='get' action='/search/-------------/'>"
+                                        + "<input name='wd'></form>"
+                                        + "<form method='post' action='/search/-------------/'>"
+                                        + "<input type='hidden' name='token' value='abc'>"
+                                        + "<input name='wd'><button name='submit'>搜索</button></form>",
+                                "http://www.lanyajc.com/"),
+                        "http://www.lanyajc.com/", "沉默的荣耀", 1, "maccms");
+
+        assertEquals(2, requests.size());
+        assertEquals("GET", requests.get(0).method);
+        assertEquals("http://www.lanyajc.com/search/-------------/",
+                HttpUrl.get(requests.get(0).path).newBuilder().query(null).build().toString());
+        assertEquals("POST", requests.get(1).method);
+        assertEquals("abc", requests.get(1).form.get("token"));
+        assertEquals("沉默的荣耀", requests.get(1).form.get("wd"));
+        assertFalse(requests.get(1).form.containsKey("submit"));
+    }
+
+    @Test
+    public void discoversArrayNamedWdFieldFromZanpianGetForm() {
+        WebCmsRequestProcess.SearchRequest request =
+                WebCmsRequestProcess.buildSearchRequestFromForm(
+                        Jsoup.parse("<form class='zanpian-search' name='formsearch' "
+                                        + "action='//search/-------------.html' method='get'>"
+                                        + "<input class='zanpian-wd' type='search' name='wd[]'>"
+                                        + "<button type='submit'>搜索</button></form>",
+                                "http://www.knshuichuli.com/"),
+                        "http://www.knshuichuli.com/", "沉默的荣耀", 1, "maccms");
+
+        assertEquals("沉默的荣耀",
+                HttpUrl.get(request.path).queryParameter("wd[]"));
+        assertFalse(HttpUrl.get(request.path).queryParameterNames().contains("wd"));
+    }
+
+    @Test
+    public void discoversArrayNamedWdFieldFromPostForm() {
+        List<WebCmsRequestProcess.SearchRequest> requests =
+                WebCmsRequestProcess.buildSearchRequestsFromForms(
+                        Jsoup.parse("<form method='post' action='/search/-------------.html'>"
+                                        + "<input type='hidden' name='token' value='abc'>"
+                                        + "<input type='search' name='wd[]'></form>",
+                                "https://source.example/"),
+                        "https://source.example/", "庆余年", 1, "maccms");
+
+        assertEquals(1, requests.size());
+        assertEquals("庆余年", requests.get(0).form.get("wd[]"));
+        assertFalse(requests.get(0).form.containsKey("wd"));
+        assertEquals("abc", requests.get(0).form.get("token"));
+    }
+
+    @Test
+    public void discoversHongguoSearchwordForm() {
+        WebCmsRequestProcess.SearchRequest request =
+                WebCmsRequestProcess.buildSearchRequestFromForm(
+                        Jsoup.parse("<form method='get' action='/search.php'>"
+                                + "<input name='searchword'></form>",
+                                "https://m.syshuoyuan.com/"),
+                        "https://m.syshuoyuan.com/", "沉默的荣耀", 1, "maccms");
+
+        assertEquals("https://m.syshuoyuan.com/search.php?searchword="
+                        + "%E6%B2%89%E9%BB%98%E7%9A%84%E8%8D%A3%E8%80%80",
+                request.path);
+    }
+
+    @Test
+    public void discoversZanpianPostFormAsFallback() {
+        List<WebCmsRequestProcess.SearchRequest> requests =
+                WebCmsRequestProcess.buildSearchRequestsFromForms(
+                        Jsoup.parse("<form method='post' action='/vod-search.html'>"
+                                + "<input name='wd'></form>",
+                                "https://www.zanpian.org/"),
+                        "https://www.zanpian.org/", "沉默的荣耀", 1, "zanpian");
+
+        assertEquals(1, requests.size());
+        assertEquals("POST", requests.get(0).method);
+        assertEquals("https://www.zanpian.org/vod-search.html",
+                requests.get(0).path);
+        assertEquals("沉默的荣耀", requests.get(0).form.get("wd"));
+    }
+
+    @Test
     public void parsesZanpianAjaxHtmlAndUsesResultTitleNotEpisodeRemark() throws Exception {
         String response = "{\"data\":{\"ajaxtxt\":\"<li>"
                 + "<a class=\\\"module_play_img\\\" href=\\\"/China/chenmoderongyao/\\\">"
@@ -163,6 +278,24 @@ public class WebCmsRequestProcessTest {
     }
 
     @Test
+    public void detailPlaybackSkipsEpisodesFromOtherRecommendedTitles() {
+        WebCmsRequestProcess process = new WebCmsRequestProcess();
+        String detailUrl = "https://www.0451yccz.com/vod/bkdlj/60143.html";
+        Map<String, java.util.LinkedHashMap<String, String>> lines =
+                process.extractPlayableEpisodeLines(
+                        Jsoup.parse("<div>"
+                                + "<a href='/vod/bkdlj/play/60143-1-1.html'>第01集</a>"
+                                + "<a href='/vod/lzdlj/play/60392-1-1.html'>推荐影片第01集</a>"
+                                + "</div>", detailUrl),
+                        detailUrl, "maccms");
+
+        assertEquals(1, lines.size());
+        assertEquals(1, lines.get("1").size());
+        assertTrue(lines.get("1").containsValue(
+                "第01集$https://www.0451yccz.com/vod/bkdlj/play/60143-1-1.html"));
+    }
+
+    @Test
     public void stripsEpisodeFragmentsBeforeSerializingPlayListSeparators() {
         WebCmsRequestProcess process = new WebCmsRequestProcess();
         String detailUrl = "https://old.sliiic.org/sli/25397.html";
@@ -188,6 +321,37 @@ public class WebCmsRequestProcessTest {
                 "策驰影视", "策驰影视", "沉默的荣耀于2025播出,杨亚洲执导，于和伟主演"));
         assertEquals("沉默的荣耀", WebCmsRequestProcess.resolveDetailTitle(
                 "策驰影视", "策驰影视", "沉默的荣耀免费在线观看剧情简介:1949年8月"));
+        assertEquals("庆余年 第一季", WebCmsRequestProcess.resolveDetailTitle(
+                "贝壳影院为您提供最新《庆余年 第一季",
+                "《庆余年 第一季》连续剧热播-贝壳影院",
+                "贝壳影院为您提供最新《庆余年 第一季》免费在线观看"));
+    }
+
+    @Test
+    public void identifiesServerSideDisabledSearchPage() {
+        assertTrue(WebCmsRequestProcess.isSearchDisabledPage(Jsoup.parse(
+                "<html><head><title>系统提示...</title></head>"
+                        + "<body><div>搜索功能关闭中</div></body></html>")));
+        assertFalse(WebCmsRequestProcess.isSearchDisabledPage(Jsoup.parse(
+                "<html><head><title>沉默的荣耀搜索结果</title></head>"
+                        + "<body><div>暂无相关视频</div></body></html>")));
+    }
+
+    @Test
+    public void identifiesIdentityVerificationPagesAsBlocked() {
+        assertTrue(WebCmsRequestProcess.isBlockedPage(Jsoup.parse(
+                "<html><head><title>身份验证</title></head>"
+                        + "<body><div>安全验证，防止自动请求</div></body></html>")));
+        assertTrue(WebCmsRequestProcess.isBlockedPage(Jsoup.parse(
+                "<html><head><title>滑动验证</title></head><body>请完成验证</body></html>")));
+    }
+
+    @Test
+    public void reportsSecurityBlocksButNotOrdinaryNetworkTimeouts() {
+        assertTrue(WebCmsRequestProcess.isBlockedSearchFailure("站点安全验证或拦截"));
+        assertTrue(WebCmsRequestProcess.isBlockedSearchFailure("HTTP 403"));
+        assertTrue(WebCmsRequestProcess.isBlockedSearchFailure("access denied"));
+        assertFalse(WebCmsRequestProcess.isBlockedSearchFailure("timeout"));
     }
 
     @Test
