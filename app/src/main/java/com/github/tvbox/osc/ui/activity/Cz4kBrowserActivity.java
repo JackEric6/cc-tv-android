@@ -86,6 +86,8 @@ public class Cz4kBrowserActivity extends BaseActivity {
         openedAt = System.currentTimeMillis();
         String url = getIntent().getStringExtra(EXTRA_URL);
         if (url == null || url.trim().isEmpty()) url = "https://www.cz4k.com/";
+        setTitle(url.toLowerCase(java.util.Locale.ROOT).contains("gaze.red")
+                ? "Gaze 验证" : "厂长资源");
         webView.loadUrl(url);
     }
 

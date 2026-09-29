@@ -74,7 +74,9 @@ final class WebCmsRequestProcess implements RequestProcess {
             "www.zanpian.org",
             "www.88ystv.com",
             "cz4k.com",
-            "www.cz4k.com"
+            "www.cz4k.com",
+            "gaze.red",
+            "www.gaze.red"
     ));
     private static final OkHttpClient CLIENT = new OkHttpClient.Builder()
             .dns(Dns.SYSTEM)
@@ -165,7 +167,8 @@ final class WebCmsRequestProcess implements RequestProcess {
         boolean searchDisabled = false;
         boolean searchBlocked = false;
         boolean discoverAfterKnownRoutes = "zanpian".equals(profile)
-                || "cz4k".equals(profile);
+                || "cz4k".equals(profile)
+                || "gaze".equals(profile);
         if (!discoverAfterKnownRoutes) {
             try {
                 requests.addAll(discoverSearchRequests(source, keyword, currentPage, profile));
@@ -380,6 +383,10 @@ final class WebCmsRequestProcess implements RequestProcess {
             String path = "/nimasile?q=" + encoded;
             if (currentPage > 1) path += "&page=" + currentPage;
             requests.add(getSearchRequest(path));
+        } else if ("gaze".equals(profile)) {
+            String path = "/filter?search=" + encoded;
+            if (currentPage > 1) path += "&page=" + currentPage;
+            requests.add(getSearchRequest(path));
         } else {
             requests.add(getSearchRequest(buildPath(
                     "/vodsearch/-------------.html", "wd", keyword,
@@ -403,10 +410,12 @@ final class WebCmsRequestProcess implements RequestProcess {
         Document document = fetchDocument(detailUrl);
         JsonObject vod = new JsonObject();
         String content = firstText(document, "meta[name=description]", ".fed-deta-content",
-                ".yplx_c3", ".detail-content", ".vod_content");
+                ".yplx_c3", ".detail-content", ".vod_content", ".description",
+                ".video-description", "[class*=description]", "[class*=synopsis]");
         String name = firstText(document, "meta[property=og:title]", "meta[name=twitter:title]",
                 ".fed-deta-info h1", ".con_name h1", ".detail-info h1",
-                ".module-info-heading h1", ".video-title", ".vod-name", "h1");
+                ".module-info-heading h1", ".video-title", ".vod-name",
+                ".video-detail-title", ".movie-title", "h1");
         name = resolveDetailTitle(name, document.title(), content);
         vod.addProperty("vod_id", id);
         vod.addProperty("vod_name", name);
@@ -424,6 +433,11 @@ final class WebCmsRequestProcess implements RequestProcess {
                 episodes.put(direct, "正片$" + direct);
                 playbackLines.put("1", episodes);
             }
+        }
+        if (playbackLines.isEmpty() && "gaze".equals(profile)) {
+            LinkedHashMap<String, String> episodes = new LinkedHashMap<>();
+            episodes.put(detailUrl, "正片$" + detailUrl);
+            playbackLines.put("1", episodes);
         }
         StringBuilder playFrom = new StringBuilder();
         StringBuilder playUrls = new StringBuilder();
@@ -590,7 +604,7 @@ final class WebCmsRequestProcess implements RequestProcess {
             JsonObject vod = new JsonObject();
             vod.addProperty("vod_id", id);
             vod.addProperty("vod_name", cleanTitle(name));
-            vod.addProperty("vod_pic", imageOf(link, card));
+            vod.addProperty("vod_pic", absoluteUrl(document.location(), imageOf(link, card)));
             vod.addProperty("vod_remarks", remarkOf(link, card));
             vod.addProperty("vod_year", firstYear(name));
             vod.addProperty("vod_play_from", "");
@@ -610,6 +624,10 @@ final class WebCmsRequestProcess implements RequestProcess {
         } else if ("zanpian".equals(profile)) {
             candidates = document.select(
                     "li a.module_play_img[href], li a.play-img[href]");
+        } else if ("gaze".equals(profile)) {
+            candidates = document.select(
+                    "a[href^=/play/], a[href*='/play/'], a[data-href*='/play/'], "
+                            + "a[href^=/detail/], a[href*='/detail/']");
         } else {
             candidates = document.select(
                     "#searchList li a[href], #searchList a[href], "
@@ -647,7 +665,7 @@ final class WebCmsRequestProcess implements RequestProcess {
             String pathAndQuery = (page.encodedPath() + " " + page.encodedQuery())
                     .toLowerCase(Locale.ROOT);
             if (pathAndQuery.contains("search") || pathAndQuery.contains("vodsearch")) return true;
-            for (String field : new String[]{"wd", "searchword", "keyword", "q"}) {
+            for (String field : new String[]{"wd", "searchword", "keyword", "q", "search"}) {
                 String submitted = page.queryParameter(field);
                 if (!submitted.isEmpty()
                         && normalizeSearchText(submitted).equals(normalizeSearchText(keyword))) {
@@ -711,6 +729,10 @@ final class WebCmsRequestProcess implements RequestProcess {
                 "^/[a-z0-9_-]+/[a-z0-9_-]+/$")) {
             return true;
         }
+        if ("gaze".equals(profile) && (lower.startsWith("/play/")
+                || lower.startsWith("/detail/"))) {
+            return true;
+        }
         if (!lower.startsWith("/") || lower.startsWith("//")) return false;
         if (lower.contains("/v/") || lower.contains("/content")
                 || lower.contains("/detail") || lower.contains("/movie")
@@ -734,6 +756,11 @@ final class WebCmsRequestProcess implements RequestProcess {
             if (resolved == null || !page.host().equalsIgnoreCase(resolved.host())) return "";
             String path = resolved.encodedPath();
             boolean shortDetail = "/s".equalsIgnoreCase(path) && hasDetailQuery(resolved);
+            if ("gaze".equals(profile) && (path.startsWith("/play/")
+                    || path.startsWith("/detail/"))) {
+                return path + (resolved.encodedQuery() == null
+                        ? "" : "?" + resolved.encodedQuery());
+            }
             if ((!isDetailPage(path, profile) && !shortDetail)
                     || isPlayablePage(path, profile)) return "";
             return path + (resolved.encodedQuery() == null
@@ -961,25 +988,27 @@ final class WebCmsRequestProcess implements RequestProcess {
     String profile(String source) {
         String host = HttpUrl.get(source).host().toLowerCase(Locale.ROOT);
         if (host.equals("cz4k.com") || host.equals("www.cz4k.com")) return "cz4k";
+        if (host.equals("gaze.red") || host.equals("www.gaze.red")) return "gaze";
         if (host.equals("www.zzhuilv.cn")) return "fed";
         if (host.equals("www.zanpian.org")) return "zanpian";
         return "maccms";
     }
 
     private String browserUserAgent(String url) {
-        return isCz4kUrl(url) ? Cz4kBrowserSession.USER_AGENT : USER_AGENT;
+        return isBrowserSessionUrl(url) ? Cz4kBrowserSession.userAgentForUrl(url) : USER_AGENT;
     }
 
     private void addBrowserCookie(Request.Builder requestBuilder, String url) {
-        if (!isCz4kUrl(url)) return;
-        String cookies = Cz4kBrowserSession.getCookieHeader();
+        if (!isBrowserSessionUrl(url)) return;
+        String cookies = Cz4kBrowserSession.getCookieHeaderForUrl(url);
         if (!TextUtils.isEmpty(cookies)) requestBuilder.header("Cookie", cookies);
     }
 
-    private boolean isCz4kUrl(String url) {
+    private boolean isBrowserSessionUrl(String url) {
         try {
             String host = HttpUrl.get(url).host().toLowerCase(Locale.ROOT);
-            return host.equals("cz4k.com") || host.equals("www.cz4k.com");
+            return host.equals("cz4k.com") || host.equals("www.cz4k.com")
+                    || host.equals("gaze.red") || host.equals("www.gaze.red");
         } catch (Throwable ignored) {
             return false;
         }
@@ -1009,8 +1038,9 @@ final class WebCmsRequestProcess implements RequestProcess {
         Element image = document.selectFirst(".detail-info-pic img, .fed-deta-info img, "
                 + "meta[property=og:image], img[alt]");
         if (image == null) return "";
-        if ("meta".equals(image.tagName())) return image.attr("content").trim();
-        return imageAttr(image);
+        String value = "meta".equals(image.tagName())
+                ? image.attr("content").trim() : imageAttr(image);
+        return absoluteUrl(document.location(), value);
     }
 
     private String imageOf(Element link, Element card) {
@@ -1036,6 +1066,25 @@ final class WebCmsRequestProcess implements RequestProcess {
             if (!value.isEmpty() && !value.contains("blank")) return value;
         }
         return "";
+    }
+
+    private String absoluteUrl(String base, String value) {
+        if (value == null || value.trim().isEmpty()) return "";
+        String path = value.trim();
+        if (path.startsWith("//")) {
+            try {
+                return HttpUrl.get(base).scheme() + ":" + path;
+            } catch (Throwable ignored) {
+                return "https:" + path;
+            }
+        }
+        if (path.startsWith("http://") || path.startsWith("https://")) return path;
+        try {
+            HttpUrl resolved = HttpUrl.get(base).resolve(path);
+            return resolved == null ? path : resolved.toString();
+        } catch (Throwable ignored) {
+            return path;
+        }
     }
 
     private String remarkOf(Element link, Element card) {

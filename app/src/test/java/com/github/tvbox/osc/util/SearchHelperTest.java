@@ -70,6 +70,7 @@ public class SearchHelperTest {
         assertTrue(SearchHelper.isSearchVerified("cechi"));
         assertTrue(SearchHelper.isSearchVerified("zanpian"));
         assertTrue(SearchHelper.isSearchVerified("cz4k"));
+        assertTrue(SearchHelper.isSearchVerified("gaze"));
         assertTrue(SearchHelper.isSearchVerified("fan_nomi"));
         assertTrue(SearchHelper.isSearchVerified("fan_moli"));
         assertTrue(SearchHelper.isSearchVerified("fan_cheese"));
@@ -88,6 +89,7 @@ public class SearchHelperTest {
     @Test
     public void cz4kWebResultsCanAppearWithoutAUsablePoster() {
         assertTrue(SearchHelper.allowsPosterlessSearchResult("cz4k"));
+        assertTrue(SearchHelper.allowsPosterlessSearchResult("gaze"));
         assertFalse(SearchHelper.allowsPosterlessSearchResult("unknown"));
     }
 
@@ -96,7 +98,7 @@ public class SearchHelperTest {
         HashMap<String, String> selected = checked("xgzy", "qiumu", "beike");
         HashMap<String, String> merged = SearchHelper.mergeBundledSearchSources(
                 selected, keys("xgzy", "qiumu", "beike", "cechi", "zanpian",
-                "meitan", "cz4k", "fan_bit", "fan_nomi", "fan_hot",
+                "meitan", "cz4k", "gaze", "fan_bit", "fan_nomi", "fan_hot",
                         "fan_moli", "fan_cheese", "fan_juquan", "fan_jianpian",
                         "unknown"));
 
@@ -106,6 +108,7 @@ public class SearchHelperTest {
         assertTrue(merged.containsKey("cechi"));
         assertTrue(merged.containsKey("zanpian"));
         assertTrue(merged.containsKey("cz4k"));
+        assertTrue(merged.containsKey("gaze"));
         assertTrue(merged.containsKey("fan_nomi"));
         assertTrue(merged.containsKey("fan_moli"));
         assertTrue(merged.containsKey("fan_cheese"));

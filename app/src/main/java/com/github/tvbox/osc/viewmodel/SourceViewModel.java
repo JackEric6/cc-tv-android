@@ -905,9 +905,10 @@ public class SourceViewModel extends ViewModel {
             });
             return;
         }
-        if ("cz4k".equals(sourceKey) && !Cz4kBrowserSession.isReady()) {
-            ensureCz4kSession(
-                    "https://www.cz4k.com/",
+        if (requiresBrowserSession(sourceKey)
+                && !Cz4kBrowserSession.isReadyForUrl(browserLandingUrl(sourceKey))) {
+            ensureBrowserSession(
+                    browserLandingUrl(sourceKey),
                     () -> getDetail(detailSourceKey, id, fallback));
             return;
         }
@@ -1060,9 +1061,10 @@ public class SourceViewModel extends ViewModel {
             });
             return;
         }
-        if ("cz4k".equals(sourceKey) && !Cz4kBrowserSession.isReady()) {
-            ensureCz4kSession(
-                    "https://www.cz4k.com/nimasile?q=" + encodeCz4kQuery(wd),
+        if (requiresBrowserSession(sourceKey)
+                && !Cz4kBrowserSession.isReadyForUrl(browserSearchUrl(sourceKey, wd))) {
+            ensureBrowserSession(
+                    browserSearchUrl(sourceKey, wd),
                     () -> getSearch(sourceKey, wd, searchToken, result, requestTag));
             return;
         }
@@ -1203,7 +1205,7 @@ public class SourceViewModel extends ViewModel {
         }
     }
 
-    private void ensureCz4kSession(String url, Runnable retry) {
+    private void ensureBrowserSession(String url, Runnable retry) {
         mainHandler.post(() -> {
             android.app.Activity activity = null;
             try {
@@ -1211,8 +1213,28 @@ public class SourceViewModel extends ViewModel {
             } catch (Throwable ignored) {
                 // Application startup or an external caller may not have an Activity yet.
             }
-            Cz4kBrowserSession.ensureReady(activity, url, retry);
+            if (url != null && url.toLowerCase(java.util.Locale.ROOT).contains("gaze.red")) {
+                Cz4kBrowserSession.ensureVisible(activity, url, retry);
+            } else {
+                Cz4kBrowserSession.ensureReady(activity, url, retry);
+            }
         });
+    }
+
+    private boolean requiresBrowserSession(String sourceKey) {
+        return "cz4k".equalsIgnoreCase(sourceKey) || "gaze".equalsIgnoreCase(sourceKey);
+    }
+
+    private String browserLandingUrl(String sourceKey) {
+        return "gaze".equalsIgnoreCase(sourceKey)
+                ? "https://gaze.red/" : "https://www.cz4k.com/";
+    }
+
+    private String browserSearchUrl(String sourceKey, String keyword) {
+        if ("gaze".equalsIgnoreCase(sourceKey)) {
+            return "https://gaze.red/filter?search=" + encodeCz4kQuery(keyword);
+        }
+        return "https://www.cz4k.com/nimasile?q=" + encodeCz4kQuery(keyword);
     }
 
     // playerContent

@@ -17,6 +17,7 @@ import android.widget.FrameLayout;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * 厂长站点的正常浏览器会话。
@@ -31,6 +32,7 @@ public final class Cz4kBrowserSession {
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final List<Runnable> WAITERS = new ArrayList<>();
     private static String cookieHeader = "";
+    private static String sessionHost = "";
     private static boolean ready;
     private static boolean warmupOpening;
     private static WebView webView;
@@ -45,11 +47,24 @@ public final class Cz4kBrowserSession {
     }
 
     public static boolean isReady() {
-        return ready;
+        return ready && isHost(sessionHost, "cz4k.com");
     }
 
     public static String getCookieHeader() {
-        return cookieHeader;
+        return isReady() ? cookieHeader : "";
+    }
+
+    public static boolean isReadyForUrl(String url) {
+        return ready && !TextUtils.isEmpty(cookieHeader)
+                && sameHost(url, sessionHost);
+    }
+
+    public static String getCookieHeaderForUrl(String url) {
+        return isReadyForUrl(url) ? cookieHeader : "";
+    }
+
+    public static String userAgentForUrl(String url) {
+        return USER_AGENT;
     }
 
     public static boolean isChallengeText(String text) {
@@ -74,7 +89,7 @@ public final class Cz4kBrowserSession {
      */
     public static void ensureReady(Activity activity, String url, Runnable ready) {
         if (ready == null) return;
-        if (isReady()) {
+        if (isReadyForUrl(url)) {
             MAIN.post(ready);
             return;
         }
@@ -90,6 +105,31 @@ public final class Cz4kBrowserSession {
         MAIN.post(() -> startBackgroundWarmup(activity, url));
     }
 
+    /**
+     * 前台打开正常 WebView，供需要用户手动完成站点验证的网页源使用。
+     * 不注入脚本、不修改验证参数，只把验证完成后的同域 Cookie 交给等待中的请求。
+     */
+    public static void ensureVisible(Activity activity, String url, Runnable ready) {
+        if (ready == null) return;
+        if (isReadyForUrl(url)) {
+            MAIN.post(ready);
+            return;
+        }
+        if (activity == null || activity.isFinishing()) {
+            markReady("");
+            return;
+        }
+        synchronized (WAITERS) {
+            WAITERS.add(ready);
+            if (warmupOpening) return;
+            warmupOpening = true;
+        }
+        sessionHost = hostOf(url);
+        openedAt = System.currentTimeMillis();
+        finished = false;
+        MAIN.post(() -> com.github.tvbox.osc.ui.activity.Cz4kBrowserActivity.open(activity, url));
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     private static void startBackgroundWarmup(Activity activity, String url) {
         if (activity == null || activity.isFinishing()
@@ -102,6 +142,7 @@ public final class Cz4kBrowserSession {
 
         finished = false;
         openedAt = System.currentTimeMillis();
+        sessionHost = hostOf(url);
         FrameLayout hiddenHost = new FrameLayout(activity);
         hiddenHost.setAlpha(0.0f);
         hiddenHost.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
@@ -191,7 +232,8 @@ public final class Cz4kBrowserSession {
         destroyBackgroundWebView();
         synchronized (WAITERS) {
             if (!TextUtils.isEmpty(cookies)) cookieHeader = cookies;
-            ready = true;
+            // 厂长旧流程允许无验证 Cookie 的普通页面直接继续；gaze 则必须拿到同域 Cookie。
+            ready = !TextUtils.isEmpty(cookies) || isHost(sessionHost, "cz4k.com");
             warmupOpening = false;
             List<Runnable> callbacks = new ArrayList<>(WAITERS);
             WAITERS.clear();
@@ -233,6 +275,26 @@ public final class Cz4kBrowserSession {
         if (currentHost != null) {
             ViewParentHelper.removeFromParent(currentHost);
         }
+    }
+
+    private static String hostOf(String url) {
+        try {
+            return android.net.Uri.parse(url).getHost().toLowerCase(Locale.ROOT);
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
+    private static boolean sameHost(String url, String expected) {
+        String actual = hostOf(url);
+        return !actual.isEmpty() && !expected.isEmpty()
+                && (actual.equals(expected) || actual.endsWith("." + expected)
+                || expected.endsWith("." + actual));
+    }
+
+    private static boolean isHost(String value, String expected) {
+        return !TextUtils.isEmpty(value) && (value.equals(expected)
+                || value.endsWith("." + expected));
     }
 
     private static final class ViewParentHelper {

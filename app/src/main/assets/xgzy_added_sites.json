@@ -58,6 +58,17 @@
       "timeout": 30
     },
     {
+      "key": "gaze",
+      "name": "Gaze",
+      "type": 1,
+      "api": "http://127.0.0.1:9978/webcms?source=https%3A%2F%2Fgaze.red&profile=gaze",
+      "searchable": 1,
+      "quickSearch": 1,
+      "changeable": 1,
+      "filterable": 0,
+      "timeout": 30
+    },
+    {
       "key": "jianpian",
       "name": "荐片",
       "type": 1,

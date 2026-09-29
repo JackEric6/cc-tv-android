@@ -43,6 +43,49 @@ public class WebCmsRequestProcessTest {
     }
 
     @Test
+    public void recognizesGazeAsAnAllowedWebSource() {
+        WebCmsRequestProcess process = new WebCmsRequestProcess();
+
+        assertTrue(process.isAllowedSource("https://gaze.red"));
+        assertTrue(process.isAllowedSource("https://www.gaze.red/"));
+        assertEquals("gaze", process.profile("https://gaze.red/"));
+    }
+
+    @Test
+    public void gazeSearchUsesFilterSearchRoute() {
+        List<WebCmsRequestProcess.SearchRequest> requests =
+                WebCmsRequestProcess.buildSearchRequests("gaze", "庆余年", 1);
+
+        assertEquals(1, requests.size());
+        HttpUrl url = HttpUrl.get("https://gaze.red" + requests.get(0).path);
+        assertEquals("/filter", url.encodedPath());
+        assertEquals("庆余年", url.queryParameter("search"));
+    }
+
+    @Test
+    public void gazePlayCardsBecomeDetailsAndPlaybackPages() {
+        WebCmsRequestProcess process = new WebCmsRequestProcess();
+        JsonArray results = process.parseCards(Jsoup.parse(
+                "<html><head><title>庆余年 搜索结果</title></head><body>"
+                        + "<article class='card'><a href='/play/2977b706dd8839b66805c7ce55cb07a5' "
+                        + "title='庆余年'><img src='/poster.jpg' alt='庆余年'></a></article>"
+                        + "</body></html>",
+                "https://gaze.red/filter?search=%E5%BA%86%E4%BD%99%E5%B9%B4"),
+                "gaze", "庆余年");
+        String detailUrl = "https://gaze.red/play/2977b706dd8839b66805c7ce55cb07a5";
+        java.util.Set<String> episodes = process.extractPlayableEpisodes(
+                Jsoup.parse("<h1>庆余年</h1><a href='/play/2977b706dd8839b66805c7ce55cb07a5?episode=1'>正片</a>",
+                        detailUrl), detailUrl, "gaze");
+
+        assertEquals(1, results.size());
+        assertEquals("/play/2977b706dd8839b66805c7ce55cb07a5",
+                results.get(0).getAsJsonObject().get("vod_id").getAsString());
+        assertEquals("https://gaze.red/poster.jpg",
+                results.get(0).getAsJsonObject().get("vod_pic").getAsString());
+        assertTrue(episodes.contains("正片$" + detailUrl + "?episode=1"));
+    }
+
+    @Test
     public void parsesCz4kSearchResultsAndDetailPlaybackPages() {
         WebCmsRequestProcess process = new WebCmsRequestProcess();
         JsonArray results = process.parseCards(Jsoup.parse(
