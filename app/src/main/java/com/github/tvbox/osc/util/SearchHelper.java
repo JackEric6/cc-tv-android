@@ -31,7 +31,7 @@ public class SearchHelper {
                 "bfzy", "zuida", "yzzy", "haohua", "xinlang", "dyttzy",
                 "ukuzy", "suboziyuan", "bdzy", "dzzy", "ryzy",
                 // Built-in sources with verified search adapters.
-                "ikanbot", "fhw88"
+                "ikanbot", "fhw88", "guazi"
         };
         for (String key : verified) SEARCH_VERIFIED_SOURCE_KEYS.add(key);
     }

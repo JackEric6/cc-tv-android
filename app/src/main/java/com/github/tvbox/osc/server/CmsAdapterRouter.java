@@ -26,6 +26,7 @@ final class CmsAdapterRouter {
 
     static CmsAdapter resolve(String sourceKey, String sourceUrl) {
         final String adapterId = adapterId(sourceKey, sourceUrl);
+        if ("guazi".equals(adapterId)) return new GuaziAdapter();
         return new LegacyCmsAdapter(adapterId);
     }
 
@@ -33,6 +34,7 @@ final class CmsAdapterRouter {
     static String adapterId(String sourceKey, String sourceUrl) {
         String key = lower(sourceKey);
         String host = host(sourceUrl);
+        if ("guazi".equals(key) || "guazi".equals(lower(sourceUrl))) return "guazi";
         if ("xgzy".equals(key) || host.contains("xgzyapi")) return "xgzy";
         if ("yzzy".equals(key) || "m766".equals(key)
                 || "api.yzzy-api.com".equals(host) || "m766.com".equals(host)) {

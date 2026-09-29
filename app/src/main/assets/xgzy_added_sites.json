@@ -23,6 +23,17 @@
       "filterable": 1,
       "timeout": 25,
       "icon": "https://www.fhw88.com.cn/favicon.ico"
+    },
+    {
+      "key": "guazi",
+      "name": "瓜子影视",
+      "type": 1,
+      "api": "http://127.0.0.1:9978/cms/guazi?source=guazi",
+      "searchable": 1,
+      "quickSearch": 1,
+      "changeable": 1,
+      "filterable": 0,
+      "timeout": 30
     }
   ]
 }
