@@ -6,8 +6,10 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -46,12 +48,29 @@ final class GuaziAdapter implements CmsAdapter {
         for (JsonElement element : sourceList) {
             if (!element.isJsonObject()) continue;
             JsonObject vod = mapVod(element.getAsJsonObject());
+            if (!matchesSearchTitle(keyword, string(vod, "vod_name"))) continue;
             String id = string(vod, "vod_id");
             if (id.isEmpty()) continue;
             SEARCH_CACHE.put(id, vod.deepCopy());
             list.add(vod);
         }
         return page(list, 1, 1);
+    }
+
+    static boolean matchesSearchTitle(String keyword, String title) {
+        String normalizedKeyword = normalizeSearchText(keyword);
+        return !normalizedKeyword.isEmpty()
+                && normalizeSearchText(title).contains(normalizedKeyword);
+    }
+
+    private static String normalizeSearchText(String value) {
+        String normalized = Normalizer.normalize(value == null ? "" : value, Normalizer.Form.NFKC)
+                .toLowerCase(Locale.ROOT);
+        StringBuilder result = new StringBuilder(normalized.length());
+        normalized.codePoints().forEach(codePoint -> {
+            if (Character.isLetterOrDigit(codePoint)) result.appendCodePoint(codePoint);
+        });
+        return result.toString();
     }
 
     private String detail(String id) throws Exception {
