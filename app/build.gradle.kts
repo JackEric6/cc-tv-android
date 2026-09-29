@@ -1,5 +1,17 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
+val requestedApplicationIdSuffix = (project.findProperty("APP_ID_SUFFIX") as String?)
+    ?.trim()
+    ?.let { if (it.isEmpty()) "" else if (it.startsWith(".")) it else "." + it }
+    ?: ""
+val requestedVersionCode = (project.findProperty("APP_VERSION_CODE") as String?)
+    ?.toIntOrNull()
+    ?: 41
+val requestedVersionName = (project.findProperty("APP_VERSION_NAME") as String?)
+    ?.trim()
+    ?.takeIf { it.isNotEmpty() }
+    ?: "1.0.38-xgzy"
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -8,8 +20,6 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
-val appVersionName = "1.0.38-xgzy"
-
 android {
     namespace = "com.github.tvbox.osc"
     compileSdk = libs.versions.compileSdk.get().toInt()
@@ -17,12 +27,12 @@ android {
     ndkVersion = libs.versions.ndk.get()
 
     defaultConfig {
-        // 独立包名:新 APK 可与原版丛丛影视并存安装。
-        applicationId = "com.github.avbox.osc.xgzy"
+        // 可通过 Gradle 属性生成并行验证包,不覆盖模拟器里已有的同包名安装。
+        applicationId = "com.github.avbox.osc.xgzy" + requestedApplicationIdSuffix
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 41
-        versionName = appVersionName
+        versionCode = requestedVersionCode
+        versionName = requestedVersionName
         multiDexEnabled = true
         ndk {
             abiFilters += setOf("arm64-v8a")
@@ -118,7 +128,7 @@ androidComponents {
         val buildStamp = System.currentTimeMillis()
         variant.outputs.forEach { output ->
             output.outputFileName.set(
-                "丛丛影视_多源追加版_${variant.buildType}_v${appVersionName}_${buildStamp}.apk"
+                "丛丛影视_多源追加版_${variant.buildType}_v${requestedVersionName}_${buildStamp}.apk"
             )
         }
     }

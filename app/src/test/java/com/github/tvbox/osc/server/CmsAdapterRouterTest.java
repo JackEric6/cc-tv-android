@@ -21,6 +21,10 @@ public class CmsAdapterRouterTest {
                 CmsAdapterRouter.adapterId("", "https://caiji.maotai999.vip/api.php/provide/vod/"));
         assertEquals(CmsAdapterRouter.IKUN_JSON,
                 CmsAdapterRouter.adapterId("ikunzy", "https://example.com/api"));
+        assertEquals(CmsAdapterRouter.JIANPIAN,
+                CmsAdapterRouter.adapterId("jianpian", "jianpian"));
+        assertEquals(CmsAdapterRouter.JIANPIAN,
+                CmsAdapterRouter.adapterId("", "https://jianpian.com/api/v1/search"));
     }
 
     @Test

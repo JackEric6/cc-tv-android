@@ -47,6 +47,17 @@
       "timeout": 25
     },
     {
+      "key": "jianpian",
+      "name": "荐片",
+      "type": 1,
+      "api": "http://127.0.0.1:9978/cms/jianpian?source=jianpian",
+      "searchable": 1,
+      "quickSearch": 1,
+      "changeable": 1,
+      "filterable": 0,
+      "timeout": 45
+    },
+    {
       "key": "beike",
       "name": "贝壳影院",
       "type": 1,

@@ -6,6 +6,7 @@ import android.text.TextUtils;
 import androidx.annotation.Nullable;
 
 import com.github.catvod.net.OkHttp;
+import com.github.tvbox.osc.util.thunder.Jianpian;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -173,6 +174,10 @@ public final class OfflineVideoCache {
         if (TextUtils.isEmpty(url)) return "";
         String value = url.trim();
         if (!(value.startsWith("http://") || value.startsWith("https://"))) return "";
+        // 荐片的 P2P 桥接虽然使用 .m3u8 路径，但响应会 302 到 P2P 引擎提供的
+        // MP4 字节流。它不是 HLS，必须进入普通 Range 下载器，否则会被 HLS
+        // 解析器当成播放列表，暂停后也就无法复用 .part 续传文件。
+        if (Jianpian.isDownloadBridgeUrl(value)) return ".mp4";
         try {
             okhttp3.HttpUrl parsed = okhttp3.HttpUrl.get(value);
             String path = parsed.encodedPath().toLowerCase(Locale.ROOT);
@@ -188,6 +193,7 @@ public final class OfflineVideoCache {
     }
 
     public static boolean isCacheableVodUrl(String url) {
+        if (Jianpian.isDownloadBridgeUrl(url)) return true;
         String extension = explicitMediaExtension(url);
         return extension != null && !extension.isEmpty()
                 || OfflineHlsTransformer.isHlsVodCandidate(url)
@@ -264,7 +270,10 @@ public final class OfflineVideoCache {
             markCompleted(context, cachedKey, cached);
             return DownloadHandle.completed(cached);
         }
-        if (OfflineHlsTransformer.isHlsVodCandidate(normalizedRemoteUrl)) {
+        // 荐片 P2P 桥接虽然使用 .m3u8 路径，响应实际是 P2P 引擎提供的 MP4
+        // 字节流，不能进入 HLS 转换器；否则会等待播放列表超时，下载句柄也
+        // 不会进入普通暂停/Range 续传流程。
+        if (shouldUseHlsPrefetch(normalizedRemoteUrl)) {
             return OfflineHlsTransformer.prefetch(context, sourceKey, movieId, playFlag,
                     episodeIndex, normalizedRemoteUrl, headers);
         }
@@ -398,7 +407,13 @@ public final class OfflineVideoCache {
                         expectedTotal = rangeTotal > 0
                                 ? rangeTotal
                                 : (bodyLength > 0 ? (append ? offset + bodyLength : bodyLength) : -1);
-                        markDownloading(context, key, expectedTotal, handle);
+                        if (isJianpianDownloadUrl(normalizedRemoteUrl)) {
+                            // P2P 原生缓存可能已经先于本地 HTTP 复制器写入 .ybbk；
+                            // 不能用普通新任务路径把这部分真实进度清零。
+                            markDownloadingForResume(context, key, expectedTotal, handle);
+                        } else {
+                            markDownloading(context, key, expectedTotal, handle);
+                        }
                         if (append && offset > 0) {
                             markProgress(context, key, offset, expectedTotal, true, handle);
                         }
@@ -448,6 +463,11 @@ public final class OfflineVideoCache {
             }
         }));
         return handle;
+    }
+
+    /** 荐片 P2P 桥接的 .m3u8 路径是 MP4 重定向，不属于 HLS 播放列表。 */
+    static boolean shouldUseHlsPrefetch(String url) {
+        return !Jianpian.isDownloadBridgeUrl(url) && OfflineHlsTransformer.isHlsVodCandidate(url);
     }
 
     static boolean copyStream(InputStream input, File part, DownloadHandle handle) throws IOException {
@@ -1408,6 +1428,7 @@ public final class OfflineVideoCache {
     public static List<TaskSnapshot> getTaskSnapshots(Context context) {
         if (context == null) return Collections.emptyList();
         ensureTasksLoaded(context);
+        syncJianpianProgress(context);
         synchronized (TASK_LOCK) {
             List<TaskSnapshot> result = new ArrayList<>();
             boolean changed = false;
@@ -1432,6 +1453,58 @@ public final class OfflineVideoCache {
             // 都不会改变任务在列表中的位置，新加入的任务始终显示在最上方。
             Collections.reverse(result);
             return result;
+        }
+    }
+
+    /**
+     * P2P 桥接的 HTTP 读取速度不等于原生任务速度：播放器/下载器可能在等待下一段
+     * 数据时没有回调，但 libp2p 已经把 .ybbk 写大。读取快照前补一次原生字节数，
+     * 让 UI 显示实际任务进度，而不是只显示“等待速度”。
+     */
+    private static void syncJianpianProgress(Context context) {
+        if (context == null) return;
+        List<String> ids = new ArrayList<>();
+        List<String> urls = new ArrayList<>();
+        synchronized (TASK_LOCK) {
+            for (TaskRecord task : TASKS.values()) {
+                if ((task.status == TaskStatus.DOWNLOADING || task.status == TaskStatus.QUEUED)
+                        && isJianpianDownloadUrl(task.remoteUrl)) {
+                    ids.add(task.id);
+                    urls.add(task.remoteUrl);
+                }
+            }
+        }
+        if (ids.isEmpty()) return;
+        long now = System.currentTimeMillis();
+        boolean changed = false;
+        synchronized (TASK_LOCK) {
+            for (int i = 0; i < ids.size(); i++) {
+                TaskRecord task = TASKS.get(ids.get(i));
+                if (task == null || (!task.status.equals(TaskStatus.DOWNLOADING)
+                        && !task.status.equals(TaskStatus.QUEUED))) continue;
+                Jianpian.DownloadStats stats = Jianpian.queryDownloadStats(urls.get(i));
+                if (stats == null || stats.downloadedBytes <= 0L) continue;
+                long previousBytes = task.downloadedBytes;
+                long previousTotal = task.totalBytes;
+                long downloaded = Math.max(previousBytes, stats.downloadedBytes);
+                long total = stats.totalBytes > 0L
+                        ? Math.max(previousTotal, stats.totalBytes) : previousTotal;
+                if (task.status == TaskStatus.QUEUED) task.status = TaskStatus.DOWNLOADING;
+                task.downloadedBytes = downloaded;
+                if (total > 0L) {
+                    task.totalBytes = total;
+                    task.progressPercent = Math.max(Math.min(task.progressPercent, 99),
+                            (int) Math.min(99L, downloaded * 100L / total));
+                }
+                if (stats.speedBytesPerSecond > 0L) {
+                    task.speedBytesPerSecond = stats.speedBytesPerSecond;
+                }
+                if (downloaded > previousBytes || total != previousTotal) {
+                    task.updatedAt = now;
+                    changed = true;
+                }
+            }
+            if (changed) persistTasksLocked();
         }
     }
 
@@ -1631,8 +1704,10 @@ public final class OfflineVideoCache {
         if (context == null || TextUtils.isEmpty(id)) return false;
         ensureTasksLoaded(context);
         DownloadHandle active = ALL_ACTIVE.remove(id);
+        String remoteUrl = taskRemoteUrl(id);
         if (active != null) {
             active.cancel();
+            if (isJianpianDownloadUrl(remoteUrl)) Jianpian.cancelDownloadUrl(remoteUrl);
             active.awaitStopped();
         }
         PROGRESS_STATES.remove(id);
@@ -1650,6 +1725,9 @@ public final class OfflineVideoCache {
             persistTasksLocked();
         }
         deleteTaskArtifacts(context, task, retainedPaths);
+        if (active == null && isJianpianDownloadUrl(remoteUrl)) {
+            Jianpian.cancelDownloadUrl(remoteUrl);
+        }
         notifyListeners(context);
         return true;
     }
@@ -1697,6 +1775,7 @@ public final class OfflineVideoCache {
         if (context == null || TextUtils.isEmpty(id)) return false;
         DownloadHandle active = ALL_ACTIVE.get(id);
         if (active == null) return false;
+        String remoteUrl = taskRemoteUrl(id);
         // 先摘除当前句柄，再落取消状态；迟到回调从这一刻起全部失效。
         synchronized (TASK_LOCK) {
             ACTIVE.remove(id, active);
@@ -1704,6 +1783,7 @@ public final class OfflineVideoCache {
         }
         markCancelled(context, id);
         active.cancel();
+        if (isJianpianDownloadUrl(remoteUrl)) Jianpian.cancelDownloadUrl(remoteUrl);
         return true;
     }
 
@@ -1711,9 +1791,12 @@ public final class OfflineVideoCache {
         if (context == null || TextUtils.isEmpty(id)) return false;
         DownloadHandle active = ALL_ACTIVE.get(id);
         if (active == null) return false;
+        String remoteUrl = taskRemoteUrl(id);
         // 不提前移除旧句柄。iOS 会等待 cancel/resumeData 回调完成后才允许 resume；
         // 这里保留句柄占位，旧回调因 cancelled 标记自动失效，继续操作会先等待它退出。
         active.pause();
+        // 先暂停原生 P2P 生产者，再等待 HTTP 复制器退出，避免等待期间 .ybbk 继续增长。
+        if (isJianpianDownloadUrl(remoteUrl)) Jianpian.pauseDownloadUrl(remoteUrl);
         // 等网络流关闭并将缓冲写入 .part，再向 UI 确认暂停。继续操作也会再次
         // 校验停止闩锁，保证不会在上一个写入者释放文件前发起 Range 请求。
         active.awaitStopped();
@@ -1721,6 +1804,18 @@ public final class OfflineVideoCache {
         updateTask(context, id, TaskStatus.PAUSED, -1, -1, "已暂停");
         PROGRESS_STATES.remove(id);
         return true;
+    }
+
+    private static String taskRemoteUrl(String id) {
+        if (TextUtils.isEmpty(id)) return "";
+        synchronized (TASK_LOCK) {
+            TaskRecord task = TASKS.get(id);
+            return task == null ? "" : task.remoteUrl;
+        }
+    }
+
+    private static boolean isJianpianDownloadUrl(String url) {
+        return url != null && url.contains("/jianpian/p2p.m3u8");
     }
 
     /** 只有当前这一轮下载才能更新任务状态；暂停后旧线程的迟到回调会被丢弃。 */
