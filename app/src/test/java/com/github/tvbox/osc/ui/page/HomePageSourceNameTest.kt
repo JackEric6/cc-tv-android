@@ -20,6 +20,12 @@ class HomePageSourceNameTest {
     }
 
     @Test
+    fun keepsThreeSixtySourceNameIntact() {
+        assertEquals("360", sourceDisplayName("三六", "360zy"))
+        assertEquals("360", sourceDisplayName("360资源"))
+    }
+
+    @Test
     fun limitsSourceNamesToTwoCharacters() {
         assertEquals("超长", sourceDisplayName("超长名称资源站"))
         assertEquals("爱看", sourceDisplayName("爱看机器人"))

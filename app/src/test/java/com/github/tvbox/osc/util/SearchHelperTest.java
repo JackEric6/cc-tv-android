@@ -65,6 +65,7 @@ public class SearchHelperTest {
         assertTrue(SearchHelper.isSearchVerified("yzzy"));
         assertTrue(SearchHelper.isSearchVerified("ikanbot"));
         assertTrue(SearchHelper.isSearchVerified("fhw88"));
+        assertTrue(SearchHelper.isSearchVerified("ikunzy"));
         assertTrue(SearchHelper.isSearchVerified("qiumu"));
         assertTrue(SearchHelper.isSearchVerified("cechi"));
         assertTrue(SearchHelper.isSearchVerified("zanpian"));
@@ -90,5 +91,14 @@ public class SearchHelperTest {
         assertTrue(merged.containsKey("zanpian"));
         assertFalse(merged.containsKey("meitan"));
         assertFalse(merged.containsKey("unknown"));
+    }
+
+    @Test
+    public void ikunIsAddedToExistingSelectionsOnceBundled() {
+        HashMap<String, String> merged = SearchHelper.mergeIkunSearchSource(
+                checked("xgzy"), keys("xgzy", "ikunzy"));
+
+        assertTrue(merged.containsKey("xgzy"));
+        assertTrue(merged.containsKey("ikunzy"));
     }
 }

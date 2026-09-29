@@ -116,6 +116,7 @@ private val SourceNameSuffix = Regex("(资源站|采集站|采集网|采集|资�
 internal fun sourceDisplayName(name: String?, key: String? = null): String {
     val raw = name.orEmpty().trim().ifEmpty { key.orEmpty().trim() }
     if (raw.isEmpty()) return "影视"
+    if (key.orEmpty().trim().equals("360zy", ignoreCase = true)) return "360"
     if (raw.contains("爱奇艺")) return "奇艺"
     if (raw.contains("电影天堂")) return "天堂"
 
@@ -126,6 +127,7 @@ internal fun sourceDisplayName(name: String?, key: String? = null): String {
         short = short.replace(SourceNameSuffix, "").trim()
     } while (short != previous)
 
+    if (short == "360") return "360"
     return short.take(2)
 }
 

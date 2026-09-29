@@ -59,7 +59,6 @@ import com.github.tvbox.osc.ui.components.SettingsCardPosition
 import com.github.tvbox.osc.ui.components.SettingsGroup
 import com.github.tvbox.osc.ui.components.SettingsOptionMenuRow
 import com.github.tvbox.osc.ui.components.SettingsRow
-import com.github.tvbox.osc.ui.activity.ConfigManageActivity
 import com.github.tvbox.osc.ui.activity.DownloadActivity
 import com.github.tvbox.osc.ui.activity.PlaySettingsActivity
 import com.github.tvbox.osc.ui.activity.PreferenceSettingsActivity
@@ -249,14 +248,6 @@ fun SettingsPage(
 
             SettingsGroup(title = null) {
                 SettingsCard(SettingsCardPosition.FIRST) {
-                    SettingsRow(
-                        title = "配置管理",
-                        subtitle = "导入或删除订阅源",
-                        iconRes = R.drawable.ic_settings_api,
-                        onClick = { ConfigManageActivity.start(context) },
-                    )
-                }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
                     SettingsRow(
                         title = "主题设置",
                         subtitle = "修改应用的配色和效果",

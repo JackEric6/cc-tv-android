@@ -926,7 +926,7 @@ public class ApiConfig {
         }
     }
 
-    /** 默认远程配置即使暂未更新，也把 APK 中新增且带本地适配器的站点补进来。 */
+    /** 默认远程配置即使暂未更新，也清理下线源并补入 APK 新增站点。 */
     private void mergeBundledDefaultSources(String apiUrl, JsonObject infoJson) {
         if (!HawkConfig.DEFAULT_API_URL.equals(apiUrl) || infoJson == null) return;
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(
@@ -941,10 +941,9 @@ public class ApiConfig {
             if (!infoJson.has("sites") || !infoJson.get("sites").isJsonArray()) infoJson.add("sites", sites);
             for (int index = sites.size() - 1; index >= 0; index--) {
                 JsonElement site = sites.get(index);
-                if (site != null && site.isJsonObject()
-                        && "beike".equals(DefaultConfig.safeJsonString(
-                        site.getAsJsonObject(), "key", ""))) {
-                    sites.remove(index);
+                if (site != null && site.isJsonObject()) {
+                    String key = DefaultConfig.safeJsonString(site.getAsJsonObject(), "key", "");
+                    if ("beike".equals(key) || "yzzy".equals(key)) sites.remove(index);
                 }
             }
             Set<String> existingKeys = new HashSet<>();

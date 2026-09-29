@@ -14,7 +14,7 @@
     },
     {
       "key": "360zy",
-      "name": "三六",
+      "name": "360",
       "type": 1,
       "api": "http://127.0.0.1:9978/cms?source=https%3A%2F%2F360zyzz.com%2Fapi.php%2Fprovide%2Fvod",
       "searchable": 1,
@@ -360,18 +360,6 @@
         "https://doubanziyuan.net/",
         "https://doubanziyuan.com/"
       ]
-    },
-    {
-      "key": "yzzy",
-      "name": "优质",
-      "type": 1,
-      "api": "http://127.0.0.1:9978/cms?source=https%3A%2F%2Fapi.yzzy-api.com%2Fapi.php%2Fprovide%2Fvod%2F",
-      "searchable": 1,
-      "quickSearch": 1,
-      "changeable": 1,
-      "filterable": 1,
-      "timeout": 25,
-      "icon": "https://yzzy.tv/favicon.ico"
     },
     {
       "key": "dzzy",

@@ -101,6 +101,17 @@ public class CmsRequestProcessTest {
     }
 
     @Test
+    public void ikunSearchUsesItsDedicatedApiAndFallbackCandidates() {
+        java.util.List<String> candidates = new CmsRequestProcess().sourceCandidates(
+                "https://ikunzyapi.com/api.php/provide/vod");
+
+        assertTrue(candidates.contains(
+                "https://ikunzyapi.com/api.php/provide/vod/from/ikm3u8/at/json"));
+        assertTrue(candidates.contains(
+                "https://ikunzyapi.com/api.php/provide/vod/"));
+    }
+
+    @Test
     public void detailRequestsDoNotSynchronouslyHydrateImages() {
         assertTrue(!CmsRequestProcess.shouldHydrateImages("detail", "关键词"));
         assertTrue(!CmsRequestProcess.shouldHydrateImages("detail", ""));

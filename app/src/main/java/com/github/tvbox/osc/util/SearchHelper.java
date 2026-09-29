@@ -26,6 +26,7 @@ public class SearchHelper {
     private static final Set<String> BUNDLED_SEARCH_SOURCE_KEYS = new HashSet<>();
     private static final Set<String> WEB_CMS_SOURCE_KEYS = new HashSet<>();
     private static final String BUNDLED_SEARCH_MIGRATION_KEY = "xgzy_bundled_search_sources_v2";
+    private static final String IKUN_SEARCH_MIGRATION_KEY = "xgzy_ikun_search_source_v1";
 
     static {
         String[] verified = {
@@ -34,14 +35,14 @@ public class SearchHelper {
                 "bfzy", "zuida", "yzzy", "haohua", "xinlang", "dyttzy",
                 "ukuzy", "suboziyuan", "bdzy", "dzzy", "ryzy",
                 // Built-in sources with verified search adapters.
-                "ikanbot", "fhw88", "guazi",
+                "ikanbot", "fhw88", "guazi", "ikunzy",
                 // Web CMS sources verified against live search and detail responses.
                 "qiumu", "cechi", "zanpian"
         };
         for (String key : verified) SEARCH_VERIFIED_SOURCE_KEYS.add(key);
 
         String[] bundled = {
-                "ikanbot", "fhw88", "qiumu", "cechi", "zanpian"
+                "ikanbot", "fhw88", "qiumu", "cechi", "zanpian", "ikunzy"
         };
         for (String key : bundled) BUNDLED_SEARCH_SOURCE_KEYS.add(key);
 
@@ -80,17 +81,22 @@ public class SearchHelper {
             mCheckSources = mCheckSourcesForApi == null ? null : mCheckSourcesForApi.get(api);
             if (mCheckSources == null || mCheckSources.isEmpty()) {
                 markBundledSearchMigration(api);
+                if (allSources.containsKey("ikunzy")) markIkunSearchMigration(api);
                 return allSources;
             }
 
             String before = mCheckSources.toString();
             if (!isBundledSearchMigrationApplied(api)) {
                 mCheckSources = mergeBundledSearchSources(mCheckSources, allSources.keySet());
-                if (!before.equals(mCheckSources.toString())) {
-                    mCheckSourcesForApi.put(api, mCheckSources);
-                    KV.put(HawkConfig.SOURCES_FOR_SEARCH, mCheckSourcesForApi);
-                }
                 markBundledSearchMigration(api);
+            }
+            if (!isIkunSearchMigrationApplied(api) && allSources.containsKey("ikunzy")) {
+                mCheckSources = mergeIkunSearchSource(mCheckSources, allSources.keySet());
+                markIkunSearchMigration(api);
+            }
+            if (!before.equals(mCheckSources.toString())) {
+                mCheckSourcesForApi.put(api, mCheckSources);
+                KV.put(HawkConfig.SOURCES_FOR_SEARCH, mCheckSourcesForApi);
             }
         } catch (Exception e) {
             return null;
@@ -123,8 +129,24 @@ public class SearchHelper {
         return merged;
     }
 
+    static HashMap<String, String> mergeIkunSearchSource(
+            HashMap<String, String> selected, Set<String> currentSourceKeys) {
+        HashMap<String, String> merged = selected == null
+                ? new HashMap<>() : new HashMap<>(selected);
+        if (currentSourceKeys.contains("ikunzy")) merged.putIfAbsent("ikunzy", "1");
+        return merged;
+    }
+
     private static boolean isBundledSearchMigrationApplied(String api) {
-        String applied = KV.get(BUNDLED_SEARCH_MIGRATION_KEY, "");
+        return isSearchMigrationApplied(BUNDLED_SEARCH_MIGRATION_KEY, api);
+    }
+
+    private static boolean isIkunSearchMigrationApplied(String api) {
+        return isSearchMigrationApplied(IKUN_SEARCH_MIGRATION_KEY, api);
+    }
+
+    private static boolean isSearchMigrationApplied(String migrationKey, String api) {
+        String applied = KV.get(migrationKey, "");
         for (String item : applied.split("\n")) {
             if (api.equals(item)) return true;
         }
@@ -132,9 +154,17 @@ public class SearchHelper {
     }
 
     private static void markBundledSearchMigration(String api) {
-        if (isBundledSearchMigrationApplied(api)) return;
-        String applied = KV.get(BUNDLED_SEARCH_MIGRATION_KEY, "");
-        KV.put(BUNDLED_SEARCH_MIGRATION_KEY,
+        markSearchMigration(BUNDLED_SEARCH_MIGRATION_KEY, api);
+    }
+
+    private static void markIkunSearchMigration(String api) {
+        markSearchMigration(IKUN_SEARCH_MIGRATION_KEY, api);
+    }
+
+    private static void markSearchMigration(String migrationKey, String api) {
+        if (isSearchMigrationApplied(migrationKey, api)) return;
+        String applied = KV.get(migrationKey, "");
+        KV.put(migrationKey,
                 applied.isEmpty() ? api : applied + "\n" + api);
     }
 
