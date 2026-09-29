@@ -24,10 +24,24 @@ final class GuaziAdapter implements CmsAdapter {
     private static final Map<String, HomePlaylist> HOME_PLAYLISTS = new ConcurrentHashMap<>();
     private static volatile List<MovieCategory> HOME_SORTS = Collections.emptyList();
 
-    private static final String[] CATEGORY_ORDER = {"2", "1", "64", "3", "4"};
-    private static final String[] CATEGORY_NAMES = {"电视剧", "电影", "短剧", "综艺", "动漫"};
-    private static final String[] PRIORITY_HOME_TITLES = {"9月热榜新剧", "最新热播电影"};
-    private static final int MAX_HOME_SORTS = 15;
+    private static final String DEFAULT_HOME_PID = "3";
+    private static final int MAX_HOME_SORTS = 14;
+    private static final HomeSectionSpec[] FIXED_HOME_SECTIONS = {
+            new HomeSectionSpec("74151", "9月重磅新剧"),
+            new HomeSectionSpec("46296", "最新热播电影"),
+            new HomeSectionSpec("19260", "TC抢先看"),
+            new HomeSectionSpec("17613", "豆瓣电影TOP250"),
+            new HomeSectionSpec("130", "Netflix新片推荐"),
+            new HomeSectionSpec("10772", "入站必追?累计2亿追番"),
+            new HomeSectionSpec("24058", "爱奇艺剧场"),
+            new HomeSectionSpec("24066", "优酷剧场"),
+            new HomeSectionSpec("24057", "腾讯剧场"),
+            new HomeSectionSpec("24067", "芒果剧场"),
+            new HomeSectionSpec("38579", "大厂VIP短剧专区"),
+            new HomeSectionSpec("16560", "历届奥斯卡最佳影片"),
+            new HomeSectionSpec("8", "冷门悬疑佳片Top20"),
+            new HomeSectionSpec("6663", "近期热门综艺"),
+    };
     private static final String[] HOME_CONTAINER_KEYS = {"list", "data", "result", "payload"};
 
     @Override
@@ -122,64 +136,58 @@ final class GuaziAdapter implements CmsAdapter {
     private static synchronized List<MovieCategory> loadHomeSorts() throws Exception {
         if (!HOME_SORTS.isEmpty()) return HOME_SORTS;
 
-        LinkedHashMap<String, MovieCategory> categories = new LinkedHashMap<>();
-        for (int index = 0; index < CATEGORY_ORDER.length; index++) {
-            categories.put(CATEGORY_ORDER[index], new MovieCategory(
-                    CATEGORY_ORDER[index], CATEGORY_NAMES[index], false));
-        }
-
-        JsonArray navigation = GuaziApi.get().homeNavigation();
-        List<String> pageIds = new ArrayList<>();
-        java.util.HashSet<String> seenPageIds = new java.util.HashSet<>();
-        for (JsonElement element : navigation) {
-            if (!element.isJsonObject()) continue;
-            JsonObject item = element.getAsJsonObject();
-            String type = firstString(item, "type", "p_type", "kind");
-            String pid = firstString(item, "pid", "id", "page_id");
-            if (pid.isEmpty() || "0".equals(pid)) continue;
-            if (!type.isEmpty() && !"video".equalsIgnoreCase(type)
-                    && !"recommend".equalsIgnoreCase(type)
-                    && !"2".equals(type)) continue;
-            if (seenPageIds.add(pid)) pageIds.add(pid);
-        }
-
-        LinkedHashMap<String, HomePlaylist> playlists = new LinkedHashMap<>();
-        // 首页标签顺序必须跟随当前接口返回的片单顺序。只读取导航页，不再依赖上一版固定 pid，
-        // 这样接口更新后“9月热榜新剧/最新热播电影”仍能被放到正确位置。
-        for (String pid : pageIds) {
-            try {
-                JsonObject page = GuaziApi.get().homePage(pid);
-                collectPlaylists(page, pid, playlists);
-            } catch (Throwable ignored) {
-                // 单个首页栏目失效不应阻断其余栏目和普通分类。
+        LinkedHashMap<String, HomePlaylist> discovered = new LinkedHashMap<>();
+        try {
+            JsonArray navigation = GuaziApi.get().homeNavigation();
+            List<String> pageIds = new ArrayList<>();
+            java.util.HashSet<String> seenPageIds = new java.util.HashSet<>();
+            for (JsonElement element : navigation) {
+                if (!element.isJsonObject()) continue;
+                JsonObject item = element.getAsJsonObject();
+                String type = firstString(item, "type", "p_type", "kind");
+                String pid = firstString(item, "pid", "id", "page_id");
+                if (pid.isEmpty() || "0".equals(pid)) continue;
+                if (!type.isEmpty() && !"video".equalsIgnoreCase(type)
+                        && !"recommend".equalsIgnoreCase(type)
+                        && !"2".equals(type)) continue;
+                if (seenPageIds.add(pid)) pageIds.add(pid);
             }
+            for (String pid : pageIds) {
+                try {
+                    JsonObject page = GuaziApi.get().homePage(pid);
+                    collectPlaylists(page, pid, discovered);
+                } catch (Throwable ignored) {
+                    // 单个首页栏目失效不应阻断其余栏目。
+                }
+            }
+        } catch (Throwable ignored) {
+            // 固定 show_id 仍可通过默认 pid 请求，不因导航接口失败而丢失首页标签。
         }
 
         List<MovieCategory> ordered = new ArrayList<>();
-        java.util.HashSet<String> added = new java.util.HashSet<>();
-        for (String title : PRIORITY_HOME_TITLES) {
-            HomePlaylist playlist = findPlaylistByTitle(playlists.values(), title);
-            if (playlist != null && added.add(playlist.category.id)) ordered.add(playlist.category);
-            if (ordered.size() >= MAX_HOME_SORTS) break;
-        }
-        for (HomePlaylist playlist : playlists.values()) {
-            if (added.add(playlist.category.id)) ordered.add(playlist.category);
-            if (ordered.size() >= MAX_HOME_SORTS) break;
-        }
-        for (String id : CATEGORY_ORDER) {
-            MovieCategory category = categories.get(id);
-            if (category != null && added.add(id)) ordered.add(category);
-            if (ordered.size() >= MAX_HOME_SORTS) break;
-        }
-
         HOME_PLAYLISTS.clear();
-        for (HomePlaylist playlist : playlists.values()) {
-            if (added.contains(playlist.category.id)) {
-                HOME_PLAYLISTS.put(playlist.category.id, playlist);
-            }
+        for (HomeSectionSpec section : FIXED_HOME_SECTIONS) {
+            HomePlaylist discoveredPlaylist = findPlaylistByShowId(discovered.values(), section.showId);
+            String pid = discoveredPlaylist == null || discoveredPlaylist.pid.isEmpty()
+                    ? DEFAULT_HOME_PID : discoveredPlaylist.pid;
+            String id = "guazi-playlist:" + pid + ":" + section.showId;
+            MovieCategory category = new MovieCategory(id, section.title, true);
+            JsonArray embedded = discoveredPlaylist == null
+                    ? new JsonArray() : discoveredPlaylist.embedded;
+            HomePlaylist playlist = new HomePlaylist(category, section.showId, pid, embedded);
+            HOME_PLAYLISTS.put(id, playlist);
+            ordered.add(category);
         }
         HOME_SORTS = Collections.unmodifiableList(new ArrayList<>(ordered));
         return HOME_SORTS;
+    }
+
+    private static HomePlaylist findPlaylistByShowId(Iterable<HomePlaylist> playlists, String showId) {
+        if (playlists == null || TextUtils.isEmpty(showId)) return null;
+        for (HomePlaylist playlist : playlists) {
+            if (playlist != null && showId.equals(playlist.showId)) return playlist;
+        }
+        return null;
     }
 
     private static HomePlaylist findPlaylistByTitle(Iterable<HomePlaylist> playlists, String expectedTitle) {
@@ -197,21 +205,34 @@ final class GuaziAdapter implements CmsAdapter {
         List<String> source = titles == null ? Collections.<String>emptyList() : titles;
         List<String> result = new ArrayList<>();
         java.util.HashSet<Integer> used = new java.util.HashSet<>();
-        for (String expected : PRIORITY_HOME_TITLES) {
+        for (HomeSectionSpec expected : FIXED_HOME_SECTIONS) {
             for (int i = 0; i < source.size(); i++) {
                 if (used.contains(i)) continue;
                 String actual = normalizeHomeTitle(source.get(i));
-                String wanted = normalizeHomeTitle(expected);
+                String wanted = normalizeHomeTitle(expected.title);
                 if (actual.equals(wanted) || actual.contains(wanted) || wanted.contains(actual)) {
                     result.add(source.get(i));
                     used.add(i);
                     break;
                 }
             }
+            if (result.size() >= MAX_HOME_SORTS) break;
         }
         for (int i = 0; i < source.size() && result.size() < MAX_HOME_SORTS; i++) {
             if (used.add(i)) result.add(source.get(i));
         }
+        return result;
+    }
+
+    static List<String> fixedHomeIdsForTest() {
+        List<String> result = new ArrayList<>();
+        for (HomeSectionSpec section : FIXED_HOME_SECTIONS) result.add(section.showId);
+        return result;
+    }
+
+    static List<String> fixedHomeTitlesForTest() {
+        List<String> result = new ArrayList<>();
+        for (HomeSectionSpec section : FIXED_HOME_SECTIONS) result.add(section.title);
         return result;
     }
 
@@ -295,7 +316,7 @@ final class GuaziAdapter implements CmsAdapter {
             }
         }
         vod.addProperty("vod_id", id);
-        if (string(vod, "vod_name").isEmpty()) vod.addProperty("vod_name", "瓜子影视 " + id);
+        if (string(vod, "vod_name").isEmpty()) vod.addProperty("vod_name", id);
 
         StringBuilder from = new StringBuilder();
         StringBuilder urls = new StringBuilder();
@@ -371,8 +392,8 @@ final class GuaziAdapter implements CmsAdapter {
 
     private JsonObject mapVod(JsonObject source) {
         JsonObject vod = new JsonObject();
-        copy(vod, "vod_id", source, "vod_id");
-        copy(vod, "vod_name", source, "vod_name", "d_name", "c_name", "title");
+        copy(vod, "vod_id", source, "vod_id", "d_id", "id", "show_id", "vodId");
+        copy(vod, "vod_name", source, "vod_name", "d_name", "c_name", "name", "title", "vod_title");
         copy(vod, "vod_pic", source, "vod_pic", "d_pic", "c_pic", "pic");
         copy(vod, "vod_year", source, "vod_year", "d_year");
         copy(vod, "vod_area", source, "vod_area", "d_area");
@@ -586,6 +607,16 @@ final class GuaziAdapter implements CmsAdapter {
             this.id = id == null ? "" : id;
             this.name = name == null || name.trim().isEmpty() ? this.id : name.trim();
             this.playlist = playlist;
+        }
+    }
+
+    private static final class HomeSectionSpec {
+        final String showId;
+        final String title;
+
+        HomeSectionSpec(String showId, String title) {
+            this.showId = showId;
+            this.title = title;
         }
     }
 

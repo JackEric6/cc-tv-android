@@ -70,13 +70,13 @@ public class SearchHelperTest {
         assertTrue(SearchHelper.isSearchVerified("cechi"));
         assertTrue(SearchHelper.isSearchVerified("zanpian"));
         assertTrue(SearchHelper.isSearchVerified("cz4k"));
-        assertTrue(SearchHelper.isSearchVerified("fan_bit"));
         assertTrue(SearchHelper.isSearchVerified("fan_nomi"));
-        assertTrue(SearchHelper.isSearchVerified("fan_hot"));
         assertTrue(SearchHelper.isSearchVerified("fan_moli"));
         assertTrue(SearchHelper.isSearchVerified("fan_cheese"));
-        assertTrue(SearchHelper.isSearchVerified("fan_juquan"));
         assertTrue(SearchHelper.isSearchVerified("fan_jianpian"));
+        assertFalse(SearchHelper.isSearchVerified("fan_bit"));
+        assertFalse(SearchHelper.isSearchVerified("fan_hot"));
+        assertFalse(SearchHelper.isSearchVerified("fan_juquan"));
         assertFalse(SearchHelper.isSearchVerified("beike"));
         assertFalse(SearchHelper.isSearchVerified("meitan"));
         assertFalse(SearchHelper.isSearchVerified("haier"));
@@ -96,7 +96,7 @@ public class SearchHelperTest {
         HashMap<String, String> selected = checked("xgzy", "qiumu", "beike");
         HashMap<String, String> merged = SearchHelper.mergeBundledSearchSources(
                 selected, keys("xgzy", "qiumu", "beike", "cechi", "zanpian",
-                        "meitan", "cz4k", "fan_bit", "fan_nomi", "fan_hot",
+                "meitan", "cz4k", "fan_bit", "fan_nomi", "fan_hot",
                         "fan_moli", "fan_cheese", "fan_juquan", "fan_jianpian",
                         "unknown"));
 
@@ -106,13 +106,13 @@ public class SearchHelperTest {
         assertTrue(merged.containsKey("cechi"));
         assertTrue(merged.containsKey("zanpian"));
         assertTrue(merged.containsKey("cz4k"));
-        assertTrue(merged.containsKey("fan_bit"));
         assertTrue(merged.containsKey("fan_nomi"));
-        assertTrue(merged.containsKey("fan_hot"));
         assertTrue(merged.containsKey("fan_moli"));
         assertTrue(merged.containsKey("fan_cheese"));
-        assertTrue(merged.containsKey("fan_juquan"));
         assertTrue(merged.containsKey("fan_jianpian"));
+        assertFalse(merged.containsKey("fan_bit"));
+        assertFalse(merged.containsKey("fan_hot"));
+        assertFalse(merged.containsKey("fan_juquan"));
         assertFalse(merged.containsKey("meitan"));
         assertFalse(merged.containsKey("unknown"));
     }

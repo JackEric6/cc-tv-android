@@ -25,9 +25,9 @@ public class SearchHelper {
     private static final Set<String> SEARCH_VERIFIED_SOURCE_KEYS = new HashSet<>();
     private static final Set<String> BUNDLED_SEARCH_SOURCE_KEYS = new HashSet<>();
     private static final Set<String> WEB_CMS_SOURCE_KEYS = new HashSet<>();
-    // 八个从旧配置恢复并随 APK 内置的源需要进入既有搜索选择。
+    // 随 APK 内置且已验证的源需要进入既有搜索选择。
     // 提升迁移版本，确保已经运行过旧版本的用户也会自动获得这些源。
-    private static final String BUNDLED_SEARCH_MIGRATION_KEY = "xgzy_bundled_search_sources_v4";
+    private static final String BUNDLED_SEARCH_MIGRATION_KEY = "xgzy_bundled_search_sources_v5";
 
     static {
         String[] verified = {
@@ -40,17 +40,15 @@ public class SearchHelper {
                 // Web CMS sources exposed by the bundled source list.
                 "qiumu", "cechi", "zanpian", "cz4k",
                 // Sources reimplemented as native adapters.
-                "fan_bit", "fan_nomi", "fan_hot", "fan_moli",
-                "fan_cheese", "fan_juquan", "fan_jianpian",
+                "fan_nomi", "fan_moli", "fan_cheese", "fan_jianpian",
                 // 最新配置直接使用中文 key；搜索页也必须允许这些 key 进入并发搜索。
-                "比特", "糯米", "热播", "茉莉", "视界", "奶酪", "剧圈", "荐片"
+                "糯米", "茉莉", "视界", "奶酪", "荐片"
         };
         for (String key : verified) SEARCH_VERIFIED_SOURCE_KEYS.add(key);
 
         String[] bundled = {
                 "ikanbot", "fhw88", "qiumu", "cechi", "zanpian", "cz4k",
-                "fan_bit", "fan_nomi", "fan_hot", "fan_moli",
-                "fan_cheese", "fan_juquan", "fan_jianpian"
+                "fan_nomi", "fan_moli", "fan_cheese", "fan_jianpian"
         };
         for (String key : bundled) BUNDLED_SEARCH_SOURCE_KEYS.add(key);
 

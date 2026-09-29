@@ -11,6 +11,7 @@ import com.github.tvbox.osc.bean.MovieSort
 import com.github.tvbox.osc.bean.SourceBean
 import com.github.tvbox.osc.event.RefreshEvent
 import com.github.tvbox.osc.util.DefaultConfig
+import com.github.tvbox.osc.util.KV
 import com.github.tvbox.osc.viewmodel.SourceViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
@@ -26,6 +27,10 @@ import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
 import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.Random
 import kotlin.coroutines.resume
 
 class HomeViewModel : ViewModel() {
@@ -36,6 +41,8 @@ class HomeViewModel : ViewModel() {
         private const val LAZY_HOME_PARTITION_DELAY_MS = 240L
         private const val GUAZI_RECOMMENDATION_SOURCE_COUNT = 3
         private const val GUAZI_RECOMMENDATION_SIZE = 5
+        private const val GUAZI_RECOMMENDATION_DAY_KEY = "guazi_recommendation_day_v2"
+        private const val GUAZI_RECOMMENDATION_IDS_KEY = "guazi_recommendation_ids_v2"
 
         internal const val HOME_PARTITION_CONCURRENCY = 8
 
@@ -510,22 +517,83 @@ class HomeViewModel : ViewModel() {
             || partitions.value.any { it.videos.isNotEmpty() }
 
     private fun refreshGuaziRecommendation() {
+        if (rec.value.state == PartitionState.Ready && rec.value.videos.isNotEmpty()) return
+        val firstTwo = partitions.value.take(2)
+        if (firstTwo.size < 2 || firstTwo.any { it.state == PartitionState.Loading }) return
+
         val candidates = ArrayList<Movie.Video>()
         val seen = HashSet<String>()
         partitions.value
             .take(GUAZI_RECOMMENDATION_SOURCE_COUNT)
             .flatMap { it.videos }
             .forEach { video ->
-                val identity = video.id?.takeIf { it.isNotBlank() }
-                    ?: "${video.name}|${video.pic}"
+                val identity = recommendationIdentity(video)
                 if (seen.add(identity)) candidates.add(video)
             }
         if (candidates.isEmpty()) return
-        rec.value = Rec(
-            PartitionState.Ready,
-            candidates.shuffled().take(GUAZI_RECOMMENDATION_SIZE),
-        )
+
+        val day = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
+        val cached = readDailyRecommendation(day, candidates)
+        val selected = if (cached.isNotEmpty()) {
+            cached
+        } else {
+            val first = partitions.value.getOrNull(0)?.videos.orEmpty()
+            val second = partitions.value.getOrNull(1)?.videos.orEmpty()
+            val seed = day.toLongOrNull() ?: day.hashCode().toLong()
+            val picked = ArrayList<Movie.Video>()
+            addStableSample(picked, first, 3, seed + 11L)
+            addStableSample(picked, second, 2, seed + 29L)
+            if (picked.size < GUAZI_RECOMMENDATION_SIZE) {
+                addStableSample(picked, candidates, GUAZI_RECOMMENDATION_SIZE - picked.size, seed + 47L)
+            }
+            persistDailyRecommendation(day, picked)
+            picked
+        }
+        if (selected.isEmpty()) return
+        rec.value = Rec(PartitionState.Ready, selected.take(GUAZI_RECOMMENDATION_SIZE))
         saveSnapshot()
+    }
+
+    private fun recommendationIdentity(video: Movie.Video): String =
+        video.id?.takeIf { it.isNotBlank() } ?: "${video.name}|${video.pic}"
+
+    private fun addStableSample(
+        target: MutableList<Movie.Video>,
+        source: List<Movie.Video>,
+        count: Int,
+        seed: Long,
+    ) {
+        if (count <= 0) return
+        val existing = target.mapTo(HashSet()) { recommendationIdentity(it) }
+        source.asSequence()
+            .distinctBy { recommendationIdentity(it) }
+            .toList()
+            .shuffled(Random(seed))
+            .filter { existing.add(recommendationIdentity(it)) }
+            .take(count)
+            .forEach(target::add)
+    }
+
+    private fun readDailyRecommendation(day: String, candidates: List<Movie.Video>): List<Movie.Video> {
+        return runCatching {
+            if (KV.get(GUAZI_RECOMMENDATION_DAY_KEY, "") != day) return@runCatching emptyList()
+            val byId = candidates.associateBy { recommendationIdentity(it) }
+            KV.get(GUAZI_RECOMMENDATION_IDS_KEY, "")
+                .split("\n")
+                .filter { it.isNotBlank() }
+                .mapNotNull { byId[it] }
+                .take(GUAZI_RECOMMENDATION_SIZE)
+        }.getOrDefault(emptyList())
+    }
+
+    private fun persistDailyRecommendation(day: String, videos: List<Movie.Video>) {
+        runCatching {
+            KV.put(GUAZI_RECOMMENDATION_DAY_KEY, day)
+            KV.put(
+                GUAZI_RECOMMENDATION_IDS_KEY,
+                videos.take(GUAZI_RECOMMENDATION_SIZE).joinToString("\n") { recommendationIdentity(it) },
+            )
+        }
     }
 
     private fun switchToXigua(): Boolean {

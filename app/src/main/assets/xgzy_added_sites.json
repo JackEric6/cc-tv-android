@@ -91,16 +91,6 @@
       "timeout": 25
     },
     {
-      "key": "fan_bit",
-      "name": "🍄比特┃不卡",
-      "type": 1,
-      "api": "native://fan_bit",
-      "searchable": 1,
-      "quickSearch": 1,
-      "changeable": 1,
-      "timeout": 10
-    },
-    {
       "key": "fan_nomi",
       "name": "🍓糯米┃秒播",
       "type": 1,
@@ -109,16 +99,6 @@
       "quickSearch": 1,
       "changeable": 1,
       "timeout": 15
-    },
-    {
-      "key": "fan_hot",
-      "name": "📺热播┃多线",
-      "type": 1,
-      "api": "native://fan_hot",
-      "searchable": 1,
-      "quickSearch": 1,
-      "changeable": 1,
-      "timeout": 10
     },
     {
       "key": "fan_moli",
@@ -138,16 +118,6 @@
       "searchable": 1,
       "quickSearch": 1,
       "changeable": 0
-    },
-    {
-      "key": "fan_juquan",
-      "name": "🐻剧圈┃多线",
-      "type": 1,
-      "api": "native://fan_juquan",
-      "searchable": 1,
-      "quickSearch": 1,
-      "changeable": 1,
-      "timeout": 10
     },
     {
       "key": "fan_jianpian",

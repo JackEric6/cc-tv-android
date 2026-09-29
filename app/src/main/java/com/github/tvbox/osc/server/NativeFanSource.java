@@ -90,9 +90,8 @@ public final class NativeFanSource {
 
     public static boolean isSupported(String key) {
         String normalized = normalizeKey(key);
-        return "fan_bit".equals(normalized) || "fan_nomi".equals(normalized) || "fan_hot".equals(normalized)
-                || "fan_moli".equals(normalized) || "fan_cheese".equals(normalized)
-                || "fan_juquan".equals(normalized) || "fan_jianpian".equals(normalized);
+        return "fan_nomi".equals(normalized) || "fan_moli".equals(normalized)
+                || "fan_cheese".equals(normalized) || "fan_jianpian".equals(normalized);
     }
 
     public static String home(String key) throws Exception {
@@ -233,9 +232,9 @@ public final class NativeFanSource {
             for (Element link : document.select("a[href*='vod-detail']")) {
                 String id = link.attr("href").trim();
                 if (id.isEmpty()) continue;
-                String name = firstNonEmpty(link.attr("title"), link.text());
+                String name = cleanNomiTitle(firstNonEmpty(link.attr("title"), link.text()));
                 Element image = link.selectFirst("img");
-                if (TextUtils.isEmpty(name) && image != null) name = image.attr("alt");
+                if (TextUtils.isEmpty(name) && image != null) name = cleanNomiTitle(image.attr("alt"));
                 JsonObject vod = vod(id, name, image == null ? "" : firstNonEmpty(image.attr("data-original"), image.attr("src")), "");
                 if (!containsId(list, id)) list.add(vod);
             }
@@ -269,6 +268,7 @@ public final class NativeFanSource {
         String detailUrl = resolve(NOMI, id);
         Document document = fetchDocument(detailUrl);
         JsonObject item = detailVod(document, id);
+        item.addProperty("vod_name", cleanNomiTitle(value(item, "vod_name")));
         JsonArray episodes = new JsonArray();
         if (document != null) {
             for (Element link : document.select("a[href*='vod-play']")) {
@@ -964,6 +964,32 @@ public final class NativeFanSource {
     private static String firstImage(Document document) { Element image = document.selectFirst("meta[property=og:image]"); if (image != null) return image.attr("content"); image = document.selectFirst("img[src]"); return image == null ? "" : image.attr("src"); }
 
     private static String firstNonEmpty(String... values) { if (values != null) for (String value : values) if (value != null && !value.trim().isEmpty()) return value.trim(); return ""; }
+
+    static String cleanNomiTitle(String value) {
+        String name = Entities.unescape(value == null ? "" : value)
+                .replace('\u00a0', ' ')
+                .replaceAll("\\s+", " ")
+                .trim();
+        String[] categories = {"国产剧", "国产电影", "国产综艺", "国产动漫", "电视剧", "电影", "综艺", "动漫", "短剧"};
+        boolean changed;
+        do {
+            changed = false;
+            for (String category : categories) {
+                if (name.startsWith(category)) {
+                    name = name.substring(category.length()).trim();
+                    changed = true;
+                }
+                if (name.endsWith(category)) {
+                    name = name.substring(0, name.length() - category.length()).trim();
+                    changed = true;
+                }
+            }
+            name = name.replaceFirst("^[\\s\\-_|:/：]+", "")
+                    .replaceFirst("[\\s\\-_|:/：]+$", "")
+                    .trim();
+        } while (changed && !name.isEmpty());
+        return name;
+    }
 
     private static boolean containsId(JsonArray list, String id) { for (JsonElement element : list) if (element.isJsonObject() && id.equals(value(element.getAsJsonObject(), "vod_id"))) return true; return false; }
 

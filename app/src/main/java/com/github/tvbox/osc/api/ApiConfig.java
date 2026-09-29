@@ -741,7 +741,20 @@ public class ApiConfig {
         String api = source.getApi() == null ? "" : source.getApi().toLowerCase(Locale.ROOT);
         return "ikunzy".equalsIgnoreCase(key)
                 || name.contains("爱坤")
-                || api.contains("ikunzy");
+                || api.contains("ikunzy")
+                || "fan_bit".equalsIgnoreCase(key)
+                || "fan_hot".equalsIgnoreCase(key)
+                || "fan_juquan".equalsIgnoreCase(key)
+                || "比特".equals(name)
+                || "热播".equals(name)
+                || "剧圈".equals(name)
+                || name.contains("比特影视")
+                || name.contains("比特┃")
+                || name.contains("热播┃")
+                || name.contains("剧圈┃")
+                || api.contains("native://fan_bit")
+                || api.contains("native://fan_hot")
+                || api.contains("native://fan_juquan");
     }
 
     private void parseJson(String apiUrl, String jsonStr) {
