@@ -8,6 +8,8 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+val appVersionName = "1.0.38-xgzy"
+
 android {
     namespace = "com.github.tvbox.osc"
     compileSdk = libs.versions.compileSdk.get().toInt()
@@ -19,8 +21,8 @@ android {
         applicationId = "com.github.avbox.osc.xgzy"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 23
-        versionName = "1.0.22-guazi"
+        versionCode = 41
+        versionName = appVersionName
         multiDexEnabled = true
         ndk {
             abiFilters += setOf("arm64-v8a")
@@ -115,7 +117,9 @@ androidComponents {
     onVariants { variant ->
         val buildStamp = System.currentTimeMillis()
         variant.outputs.forEach { output ->
-            output.outputFileName.set("丛丛影视_多源追加版_${variant.buildType}_v1.0.20-xgzy_${buildStamp}.apk")
+            output.outputFileName.set(
+                "丛丛影视_多源追加版_${variant.buildType}_v${appVersionName}_${buildStamp}.apk"
+            )
         }
     }
 }
