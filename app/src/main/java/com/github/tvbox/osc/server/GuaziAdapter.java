@@ -21,6 +21,8 @@ import okhttp3.HttpUrl;
 /** 把瓜子影视的加密接口转换为 TVBox 标准 CMS JSON。 */
 final class GuaziAdapter implements CmsAdapter {
     private static final Map<String, JsonObject> SEARCH_CACHE = new ConcurrentHashMap<>();
+    /** 首页/分类返回的标题比 showOne 接口稳定，详情请求时用它补回展示元数据。 */
+    private static final Map<String, JsonObject> CATALOG_CACHE = new ConcurrentHashMap<>();
     private static final Map<String, HomePlaylist> HOME_PLAYLISTS = new ConcurrentHashMap<>();
     private static volatile List<MovieCategory> HOME_SORTS = Collections.emptyList();
 
@@ -122,7 +124,11 @@ final class GuaziAdapter implements CmsAdapter {
         for (JsonElement element : raw) {
             if (!element.isJsonObject()) continue;
             JsonObject vod = mapVod(element.getAsJsonObject());
-            if (!string(vod, "vod_id").isEmpty()) list.add(vod);
+            String id = string(vod, "vod_id");
+            if (!id.isEmpty()) {
+                CATALOG_CACHE.put(id, vod.deepCopy());
+                list.add(vod);
+            }
         }
         int total = number(response, "total", list.size());
         int pages = number(response, "pagecount", Math.max(1, (total + 29) / 30));
@@ -283,6 +289,7 @@ final class GuaziAdapter implements CmsAdapter {
             String id = string(vod, "vod_id");
             if (id.isEmpty()) continue;
             SEARCH_CACHE.put(id, vod.deepCopy());
+            CATALOG_CACHE.put(id, vod.deepCopy());
             list.add(vod);
         }
         return page(list, 1, 1);
@@ -305,7 +312,8 @@ final class GuaziAdapter implements CmsAdapter {
     }
 
     private String detail(String id) throws Exception {
-        JsonObject metadata = SEARCH_CACHE.get(id);
+        JsonObject metadata = CATALOG_CACHE.get(id);
+        if (metadata == null) metadata = SEARCH_CACHE.get(id);
         JsonObject source = GuaziApi.get().detail(id);
         JsonObject vod = mergeVod(metadata, source);
         if (string(vod, "vod_content").isEmpty()) {
