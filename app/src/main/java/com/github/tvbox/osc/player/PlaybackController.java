@@ -1149,7 +1149,6 @@ public class PlaybackController {
                         // 取流成功,手动选线标记完成使命,后续失败恢复走正常自动策略
                         st.userPickedLine = false;
                         String danmaku = info.optString("danmaku", "").trim();
-                        final String danmuProgressKey = progressKey();
                         setWebUserAgent(null);
                         setWebHeaderMap(null);
                         HashMap<String, String> headers = extractHeaders(info);
@@ -1165,16 +1164,8 @@ public class PlaybackController {
                             if (view != null) view.showParse(false);
                             if (view != null) playUrl(playUrl + url, headers);
                         }
-                        if (TextUtils.isEmpty(danmaku)) {
-                            checkDanmu("", null);
-                            searchDanmu("");
-                        } else {
-                            checkDanmu(danmaku, () -> {
-                                if (TextUtils.equals(danmuProgressKey, progressKey())) {
-                                    searchDanmu("");
-                                }
-                            });
-                        }
+                        // 播放成功后不再自动启动弹幕服务或联网搜索弹幕。
+                        // 原 JAR 的自动弹幕失败提示会干扰原生源播放；用户仍可从播放器菜单手动触发。
                     } catch (Throwable th) {
                         handleResolvePlayUrlFailed("获取播放信息错误");
                     }

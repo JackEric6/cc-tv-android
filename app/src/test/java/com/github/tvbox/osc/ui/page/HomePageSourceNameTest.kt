@@ -32,4 +32,12 @@ class HomePageSourceNameTest {
         assertEquals("瓜子", sourceDisplayName("瓜子影视", "guazi"))
         assertEquals("影视", sourceDisplayName(null))
     }
+
+    @Test
+    fun removesEmojiPrefixBeforeShortening() {
+        assertEquals("比特", sourceDisplayName("🍄比特┃不卡"))
+        assertEquals("糯米", sourceDisplayName("🍓糯米┃秒播"))
+        assertEquals("厂长", sourceDisplayName("📔厂长┃JAR"))
+        assertEquals("荐片", sourceDisplayName("🥝荐片┃JAR"))
+    }
 }

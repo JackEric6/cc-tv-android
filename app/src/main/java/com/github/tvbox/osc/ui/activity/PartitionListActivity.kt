@@ -72,15 +72,17 @@ class PartitionListActivity : BaseActivity() {
         private const val EXTRA_TITLE = "title"
         private const val EXTRA_SORT = "sort_json"
         private const val EXTRA_VIDEOS = "videos_json"
+        private const val EXTRA_SOURCE_KEY = "source_key"
         const val MODE_PARTITION = "partition"
         const val MODE_SEARCH = "search"
         const val MODE_FOLDER = "folder"
 
-        fun startForPartition(context: Context, sort: MovieSort.SortData) {
+        fun startForPartition(context: Context, sort: MovieSort.SortData, sourceKey: String? = null) {
             context.startActivity(Intent(context, PartitionListActivity::class.java).apply {
                 putExtra(EXTRA_MODE, MODE_PARTITION)
                 putExtra(EXTRA_TITLE, sort.name ?: "")
                 putExtra(EXTRA_SORT, Gson().toJson(sort))
+                putExtra(EXTRA_SOURCE_KEY, sourceKey.orEmpty())
             })
         }
 
@@ -118,6 +120,7 @@ class PartitionListActivity : BaseActivity() {
                     title = intent.getStringExtra(EXTRA_TITLE) ?: "",
                     sortJson = intent.getStringExtra(EXTRA_SORT),
                     videosJson = intent.getStringExtra(EXTRA_VIDEOS),
+                    sourceKey = intent.getStringExtra(EXTRA_SOURCE_KEY).orEmpty(),
                 )
             }
         }
@@ -125,7 +128,13 @@ class PartitionListActivity : BaseActivity() {
 }
 
 @Composable
-private fun PartitionListScreen(mode: String, title: String, sortJson: String?, videosJson: String?) {
+private fun PartitionListScreen(
+    mode: String,
+    title: String,
+    sortJson: String?,
+    videosJson: String?,
+    sourceKey: String,
+) {
     val context = LocalContext.current
     val vm: PartitionListVM = viewModel()
     var filterOpen by remember { mutableStateOf(false) }
@@ -134,7 +143,10 @@ private fun PartitionListScreen(mode: String, title: String, sortJson: String?, 
 
     LaunchedEffect(sortJson) {
         if (mode != PartitionListActivity.MODE_SEARCH && sortJson != null) {
-            vm.initIfNeed(Gson().fromJson(sortJson, MovieSort.SortData::class.java))
+            vm.initIfNeed(
+                Gson().fromJson(sortJson, MovieSort.SortData::class.java),
+                sourceKey,
+            )
         }
     }
     LaunchedEffect(vm) {

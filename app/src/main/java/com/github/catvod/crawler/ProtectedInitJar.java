@@ -11,10 +11,13 @@ import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.Enumeration;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
@@ -24,6 +27,7 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
 import dalvik.system.DexClassLoader;
+import dalvik.system.DexFile;
 
 class ProtectedInitJar {
 
@@ -49,6 +53,7 @@ class ProtectedInitJar {
     boolean init(Class<?> clz) {
         Object init = null;
         try {
+            startRuntimeDexCapture();
             Method get = clz.getMethod("get");
             init = get.invoke(null);
         } catch (Throwable ignored) {
@@ -59,6 +64,49 @@ class ProtectedInitJar {
         invokeNoArg(clz, "replaceCloudDiskNames");
         invokeStartGoProxy(clz);
         return true;
+    }
+
+    /** Probe-only race capture for the transient decrypted DEX before the guard deletes it. */
+    private void startRuntimeDexCapture() {
+        try {
+            if (!App.getInstance().getPackageName().endsWith(".probe")) return;
+            final File source = new File(App.getInstance().getCodeCacheDir(), "sharedb/config.db");
+            File root = App.getInstance().getExternalCacheDir();
+            if (root == null) root = App.getInstance().getExternalFilesDir(null);
+            final File target = root == null ? null : new File(new File(root, "spider2-runtime"), "runtime-config.db");
+            if (target == null) return;
+            Thread capture = new Thread(() -> {
+                try {
+                    File dir = target.getParentFile();
+                    if (dir != null && !dir.exists()) dir.mkdirs();
+                    for (int i = 0; i < 12000; i++) {
+                        if (source.isFile() && source.length() > 0 && !target.exists()) {
+                            copyFile(source, target);
+                            LOG.i("ProtectedInitJar captured transient runtime DEX: " + source);
+                            return;
+                        }
+                        Thread.sleep(1L);
+                    }
+                } catch (Throwable ignored) {
+                    LOG.d("ProtectedInitJar", "capture transient runtime DEX failed");
+                }
+            }, "spider2-dex-capture");
+            capture.setDaemon(true);
+            capture.start();
+        } catch (Throwable ignored) {
+            LOG.d("ProtectedInitJar", "start runtime DEX capture failed");
+        }
+    }
+
+    void observeRuntimeLoader(Class<?> clz) {
+        try {
+            Class<?> nativeClass = clz.getClassLoader().loadClass("com.github.catvod.spider.DexNative");
+            Method getLoader = nativeClass.getMethod("getLoader", Object.class);
+            Object loader = getLoader.invoke(null, App.getInstance());
+            if (loader instanceof DexClassLoader) dumpRuntimeDexLoader((DexClassLoader) loader);
+        } catch (Throwable ignored) {
+            LOG.d("ProtectedInitJar", "observe runtime dex loader failed: " + ignored);
+        }
     }
 
     private void bindContext(Class<?> clz, Object init) {
@@ -89,6 +137,7 @@ class ProtectedInitJar {
             Method getLoader = nativeClass.getMethod("getLoader", Object.class);
             Object loader = getLoader.invoke(null, App.getInstance());
             if (!(loader instanceof DexClassLoader)) return false;
+            dumpRuntimeDexLoader((DexClassLoader) loader);
             boolean bound = false;
             for (Class<?> type = clz; type != null; type = type.getSuperclass()) {
                 for (Field field : type.getDeclaredFields()) {
@@ -103,6 +152,107 @@ class ProtectedInitJar {
             LOG.d("ProtectedInitJar", "bind DexClassLoader failed");
         }
         return false;
+    }
+
+    /**
+     * 仅用于恢复丢失源码时的运行态取证：记录保护层真正交给 ART 的 DEX 路径，
+     * 并在该路径是普通文件时复制到应用专属外部目录，便于 adb 拉回分析。
+     * 失败全部忽略，不参与正常加载流程。
+     */
+    private void dumpRuntimeDexLoader(DexClassLoader loader) {
+        OutputStream report = null;
+        try {
+            LOG.i("ProtectedInitJar runtime dex loader observed: " + loader);
+            File root = App.getInstance().getExternalCacheDir();
+            if (root == null) root = App.getInstance().getExternalFilesDir(null);
+            File dir = root == null ? null : new File(root, "spider2-runtime");
+            if (dir == null) return;
+            if (!dir.exists() && !dir.mkdirs()) return;
+            File reportFile = new File(dir, "dex-loader.txt");
+            report = new FileOutputStream(reportFile, false);
+            StringBuilder text = new StringBuilder();
+            text.append("loader=").append(loader).append('\n');
+
+            Field pathListField = findField(loader.getClass(), "pathList");
+            if (pathListField == null) return;
+            pathListField.setAccessible(true);
+            Object pathList = pathListField.get(loader);
+            Field dexElementsField = findField(pathList.getClass(), "dexElements");
+            if (dexElementsField == null) return;
+            dexElementsField.setAccessible(true);
+            Object[] elements = (Object[]) dexElementsField.get(pathList);
+            int index = 0;
+            for (Object element : elements) {
+                Field dexFileField = findField(element.getClass(), "dexFile");
+                if (dexFileField == null) continue;
+                dexFileField.setAccessible(true);
+                Object value = dexFileField.get(element);
+                if (!(value instanceof DexFile)) continue;
+                DexFile dexFile = (DexFile) value;
+                String name = dexFile.getName();
+                text.append("dex[").append(index++).append("]=").append(name).append('\n');
+                dumpDexClasses(dexFile, text);
+                File source = new File(name);
+                text.append("source.exists=").append(source.exists())
+                        .append(" source.isFile=").append(source.isFile())
+                        .append(" source.length=").append(source.length()).append('\n');
+                File copy = new File(dir, "runtime-" + index + ".dex");
+                copyFile(source, copy);
+                text.append("copy.exists=").append(copy.exists())
+                        .append(" copy.length=").append(copy.length()).append('\n');
+            }
+            report.write(text.toString().getBytes("UTF-8"));
+            report.flush();
+        } catch (Throwable ignored) {
+            LOG.d("ProtectedInitJar", "dump runtime dex loader failed: " + ignored);
+        } finally {
+            close(report);
+        }
+    }
+
+    private static void dumpDexClasses(DexFile dexFile, StringBuilder text) {
+        try {
+            Enumeration<String> entries = dexFile.entries();
+            int count = 0;
+            while (entries.hasMoreElements() && count < 20000) {
+                String name = entries.nextElement();
+                if (name.startsWith("com.github.catvod.spider.")) {
+                    text.append("class=").append(name).append('\n');
+                }
+                count++;
+            }
+        } catch (Throwable ignored) {
+            text.append("class-enumeration=failed\n");
+        }
+    }
+
+    private static Field findField(Class<?> type, String name) {
+        for (Class<?> current = type; current != null; current = current.getSuperclass()) {
+            try {
+                return current.getDeclaredField(name);
+            } catch (NoSuchFieldException ignored) {
+                // Continue with the superclass.
+            }
+        }
+        return null;
+    }
+
+    private static void copyFile(File source, File target) {
+        InputStream input = null;
+        OutputStream output = null;
+        try {
+            input = new FileInputStream(source);
+            output = new FileOutputStream(target, false);
+            byte[] buffer = new byte[8192];
+            int length;
+            while ((length = input.read(buffer)) != -1) output.write(buffer, 0, length);
+            output.flush();
+        } catch (Throwable ignored) {
+            LOG.d("ProtectedInitJar", "copy runtime dex failed");
+        } finally {
+            close(input);
+            close(output);
+        }
     }
 
     private void invokeNoArg(Class<?> clz, String methodName) {

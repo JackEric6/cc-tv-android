@@ -47,6 +47,17 @@
       "timeout": 25
     },
     {
+      "key": "cz4k",
+      "name": "厂长",
+      "type": 1,
+      "api": "http://127.0.0.1:9978/webcms?source=https%3A%2F%2Fwww.cz4k.com&profile=cz4k",
+      "searchable": 1,
+      "quickSearch": 1,
+      "changeable": 1,
+      "filterable": 0,
+      "timeout": 30
+    },
+    {
       "key": "jianpian",
       "name": "荐片",
       "type": 1,
@@ -80,26 +91,73 @@
       "timeout": 25
     },
     {
-      "key": "ikunzy",
-      "name": "艾坤",
+      "key": "fan_bit",
+      "name": "🍄比特┃不卡",
       "type": 1,
-      "api": "http://127.0.0.1:9978/cms?source=https%3A%2F%2Fikunzyapi.com%2Fapi.php%2Fprovide%2Fvod",
+      "api": "native://fan_bit",
       "searchable": 1,
       "quickSearch": 1,
       "changeable": 1,
-      "filterable": 1,
-      "timeout": 25,
-      "icon": "https://ikunzy.com/favicon.ico",
-      "home": "https://ikunzy.com/",
-      "backupApi": [
-        "https://ikunzyapi.com/api.php/provide/vod/from/ikm3u8/at/json"
-      ],
-      "backupDomain": [
-        "https://ikunzy.net/",
-        "https://ikunzy.org/",
-        "https://ikunzy.vip/",
-        "https://ikzy1.com/"
-      ]
+      "timeout": 10
+    },
+    {
+      "key": "fan_nomi",
+      "name": "🍓糯米┃秒播",
+      "type": 1,
+      "api": "native://fan_nomi",
+      "searchable": 1,
+      "quickSearch": 1,
+      "changeable": 1,
+      "timeout": 15
+    },
+    {
+      "key": "fan_hot",
+      "name": "📺热播┃多线",
+      "type": 1,
+      "api": "native://fan_hot",
+      "searchable": 1,
+      "quickSearch": 1,
+      "changeable": 1,
+      "timeout": 10
+    },
+    {
+      "key": "fan_moli",
+      "name": "🌸茉莉┃多线",
+      "type": 1,
+      "api": "native://fan_moli",
+      "searchable": 1,
+      "quickSearch": 1,
+      "changeable": 1,
+      "timeout": 10
+    },
+    {
+      "key": "fan_cheese",
+      "name": "🧀奶酪┃秒播",
+      "type": 1,
+      "api": "native://fan_cheese",
+      "searchable": 1,
+      "quickSearch": 1,
+      "changeable": 0
+    },
+    {
+      "key": "fan_juquan",
+      "name": "🐻剧圈┃多线",
+      "type": 1,
+      "api": "native://fan_juquan",
+      "searchable": 1,
+      "quickSearch": 1,
+      "changeable": 1,
+      "timeout": 10
+    },
+    {
+      "key": "fan_jianpian",
+      "name": "🥝荐片┃原生",
+      "type": 1,
+      "api": "native://fan_jianpian",
+      "searchable": 1,
+      "quickSearch": 1,
+      "changeable": 0,
+      "timeout": 10
     }
   ]
 }

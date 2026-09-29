@@ -499,29 +499,6 @@
       ]
     },
     {
-      "key": "ikunzy",
-      "name": "艾坤",
-      "type": 1,
-      "api": "http://127.0.0.1:9978/cms?source=https%3A%2F%2Fikunzyapi.com%2Fapi.php%2Fprovide%2Fvod",
-      "searchable": 1,
-      "quickSearch": 1,
-      "changeable": 1,
-      "filterable": 1,
-      "timeout": 25,
-      "icon": "https://ikunzy.com/favicon.ico",
-      "home": "https://ikunzy.com/",
-      "help": "https://www.ikunzy.com/ikun/help.html",
-      "backupApi": [
-        "https://ikunzyapi.com/api.php/provide/vod/from/ikm3u8/at/json"
-      ],
-      "backupDomain": [
-        "https://ikunzy.net/",
-        "https://ikunzy.org/",
-        "https://ikunzy.vip/",
-        "https://ikzy1.com/"
-      ]
-    },
-    {
       "key": "yutu",
       "name": "玉兔",
       "type": 1,

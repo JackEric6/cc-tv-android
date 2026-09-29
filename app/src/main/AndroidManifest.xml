@@ -91,6 +91,11 @@
             android:name=".ui.activity.SearchActivity"
             android:windowSoftInputMode="stateHidden|adjustResize" />
         <activity
+            android:name=".ui.activity.Cz4kBrowserActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="false"
+            android:label="厂长资源" />
+        <activity
             android:name=".ui.activity.PartitionListActivity" />
         <activity
             android:name=".ui.activity.ThemeSettingsActivity" />

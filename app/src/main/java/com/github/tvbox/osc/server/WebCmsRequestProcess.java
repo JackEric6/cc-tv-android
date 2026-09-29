@@ -72,7 +72,9 @@ final class WebCmsRequestProcess implements RequestProcess {
             "www.ikang.org",
             "www.fjsycjs.com",
             "www.zanpian.org",
-            "www.88ystv.com"
+            "www.88ystv.com",
+            "cz4k.com",
+            "www.cz4k.com"
     ));
     private static final OkHttpClient CLIENT = new OkHttpClient.Builder()
             .dns(Dns.SYSTEM)
@@ -162,7 +164,8 @@ final class WebCmsRequestProcess implements RequestProcess {
         List<SearchRequest> requests = new ArrayList<>();
         boolean searchDisabled = false;
         boolean searchBlocked = false;
-        boolean discoverAfterKnownRoutes = "zanpian".equals(profile);
+        boolean discoverAfterKnownRoutes = "zanpian".equals(profile)
+                || "cz4k".equals(profile);
         if (!discoverAfterKnownRoutes) {
             try {
                 requests.addAll(discoverSearchRequests(source, keyword, currentPage, profile));
@@ -194,7 +197,9 @@ final class WebCmsRequestProcess implements RequestProcess {
                     + resolve(source, request.path) + " " + request.form;
             if (!attempted.add(signature)) continue;
             try {
-                Document document = fetchDocument(source, request);
+                Document document = "cz4k".equals(profile)
+                        ? fetchDocument(source, request, CLIENT)
+                        : fetchDocument(source, request);
                 if (isSearchDisabledPage(document)) {
                     searchDisabled = true;
                     continue;
@@ -371,6 +376,10 @@ final class WebCmsRequestProcess implements RequestProcess {
             path.append("-ajax");
             requests.add(new SearchRequest("GET", path.toString(),
                     Collections.<String, String>emptyMap(), true));
+        } else if ("cz4k".equals(profile)) {
+            String path = "/nimasile?q=" + encoded;
+            if (currentPage > 1) path += "&page=" + currentPage;
+            requests.add(getSearchRequest(path));
         } else {
             requests.add(getSearchRequest(buildPath(
                     "/vodsearch/-------------.html", "wd", keyword,
@@ -666,7 +675,8 @@ final class WebCmsRequestProcess implements RequestProcess {
                 "系统安全验证", "请输入验证码", "访问验证", "请完成验证",
                 "身份验证", "安全验证", "滑动验证",
                 "captcha", "cloudflare", "just a moment", "attention required",
-                "403 forbidden", "access denied", "checking your browser"
+                "403 forbidden", "access denied", "checking your browser",
+                "雷池", "safeline", "安全检查", "访问验证", "请稍候", "人机验证"
         };
         for (String marker : markers) {
             if (text.contains(marker)) return true;
@@ -759,6 +769,7 @@ final class WebCmsRequestProcess implements RequestProcess {
         }
         return lower.contains("/p/") || lower.contains("/play")
                 || lower.contains("/vodplay") || lower.contains("/player")
+                || lower.contains("/v_play/")
                 || lower.endsWith(".m3u8") || lower.endsWith(".mp4");
     }
 
@@ -816,11 +827,12 @@ final class WebCmsRequestProcess implements RequestProcess {
         String url = resolve(source, searchRequest.path);
         Request.Builder requestBuilder = new Request.Builder()
                 .url(url)
-                .header("User-Agent", USER_AGENT)
+                .header("User-Agent", browserUserAgent(url))
                 .header("Accept", "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8")
                 .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
                 .header("Referer", source)
                 .header("Origin", origin(source));
+        addBrowserCookie(requestBuilder, url);
         if (searchRequest.htmlInJson) {
             requestBuilder.header("X-Requested-With", "XMLHttpRequest")
                     .header("Accept", "application/json, text/javascript, */*; q=0.01");
@@ -870,13 +882,14 @@ final class WebCmsRequestProcess implements RequestProcess {
     }
 
     private Document fetchDocument(String url) throws IOException {
-        Request request = new Request.Builder()
+        Request.Builder requestBuilder = new Request.Builder()
                 .url(url)
-                .header("User-Agent", USER_AGENT)
+                .header("User-Agent", browserUserAgent(url))
                 .header("Accept", "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8")
                 .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-                .header("Referer", url)
-                .build();
+                .header("Referer", url);
+        addBrowserCookie(requestBuilder, url);
+        Request request = requestBuilder.build();
         return executeDocument(url, request);
     }
 
@@ -945,14 +958,34 @@ final class WebCmsRequestProcess implements RequestProcess {
         return root.toString();
     }
 
-    private String profile(String source) {
+    String profile(String source) {
         String host = HttpUrl.get(source).host().toLowerCase(Locale.ROOT);
+        if (host.equals("cz4k.com") || host.equals("www.cz4k.com")) return "cz4k";
         if (host.equals("www.zzhuilv.cn")) return "fed";
         if (host.equals("www.zanpian.org")) return "zanpian";
         return "maccms";
     }
 
-    private boolean isAllowedSource(String source) {
+    private String browserUserAgent(String url) {
+        return isCz4kUrl(url) ? Cz4kBrowserSession.USER_AGENT : USER_AGENT;
+    }
+
+    private void addBrowserCookie(Request.Builder requestBuilder, String url) {
+        if (!isCz4kUrl(url)) return;
+        String cookies = Cz4kBrowserSession.getCookieHeader();
+        if (!TextUtils.isEmpty(cookies)) requestBuilder.header("Cookie", cookies);
+    }
+
+    private boolean isCz4kUrl(String url) {
+        try {
+            String host = HttpUrl.get(url).host().toLowerCase(Locale.ROOT);
+            return host.equals("cz4k.com") || host.equals("www.cz4k.com");
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    boolean isAllowedSource(String source) {
         if (TextUtils.isEmpty(source)) return false;
         try {
             return ALLOWED_HOSTS.contains(HttpUrl.get(source).host().toLowerCase(Locale.ROOT));

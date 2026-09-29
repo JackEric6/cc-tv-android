@@ -40,6 +40,45 @@ final class GuaziApi {
         return request("/App/Index/findMoreVod", params);
     }
 
+    JsonArray homeNavigation() throws IOException {
+        JsonElement value = requestValue("/App/Index/indexPid", new JsonObject());
+        return value != null && value.isJsonArray() ? value.getAsJsonArray() : new JsonArray();
+    }
+
+    JsonObject homePage(String pid) throws IOException {
+        JsonObject params = new JsonObject();
+        params.addProperty("pid", pid);
+        return request("/App/IndexList/index", params);
+    }
+
+    JsonObject homePlaylist(String showId, String pid) throws IOException {
+        JsonObject params = new JsonObject();
+        params.addProperty("show_id", showId);
+        params.addProperty("pid", pid);
+        return request("/App/IndexList/hotsList", params);
+    }
+
+    JsonObject category(String tid, int page, Map<String, String> filters) throws IOException {
+        JsonObject params = new JsonObject();
+        params.addProperty("area", value(filters, "area", "0"));
+        params.addProperty("sub", value(filters, "sub", categorySub(tid)));
+        params.addProperty("year", value(filters, "year", "0"));
+        params.addProperty("pageSize", "30");
+        params.addProperty("sort", value(filters, "sort", "d_id"));
+        params.addProperty("page", String.valueOf(Math.max(1, page)));
+        params.addProperty("tid", tid);
+        return request("/App/IndexList/indexList", params);
+    }
+
+    JsonObject playInfo(String vodId) throws IOException {
+        JsonObject params = new JsonObject();
+        params.addProperty("token_id", "");
+        params.addProperty("vod_id", vodId);
+        params.addProperty("mobile_time", String.valueOf(System.currentTimeMillis() / 1000L));
+        params.addProperty("token", KV.get(TOKEN_KEY, ""));
+        return request("/App/IndexPlay/playInfo", params);
+    }
+
     JsonObject detail(String vodId) throws IOException {
         JsonObject params = new JsonObject();
         params.addProperty("d_id", vodId);
@@ -67,15 +106,20 @@ final class GuaziApi {
     }
 
     private JsonObject request(String path, JsonObject params) throws IOException {
+        JsonElement value = requestValue(path, params);
+        return value != null && value.isJsonObject() ? value.getAsJsonObject() : new JsonObject();
+    }
+
+    private JsonElement requestValue(String path, JsonObject params) throws IOException {
         synchronized (TOKEN_LOCK) {
             String token = KV.get(TOKEN_KEY, "");
             if (token.isEmpty()) token = registerLocked();
             try {
-                return doRequest(path, params, token);
+                return doRequestValue(path, params, token);
             } catch (GuaziAuthException authException) {
                 KV.put(TOKEN_KEY, "");
                 String renewed = registerLocked();
-                return doRequest(path, params, renewed);
+                return doRequestValue(path, params, renewed);
             }
         }
     }
@@ -107,6 +151,11 @@ final class GuaziApi {
     }
 
     private JsonObject doRequest(String path, JsonObject params, String token) throws IOException {
+        JsonElement value = doRequestValue(path, params, token);
+        return value != null && value.isJsonObject() ? value.getAsJsonObject() : new JsonObject();
+    }
+
+    private JsonElement doRequestValue(String path, JsonObject params, String token) throws IOException {
         try {
             long time = System.currentTimeMillis() / 1000L;
             Map<String, String> values = GuaziCrypto.createForm(params, token, time);
@@ -133,7 +182,7 @@ final class GuaziApi {
                     }
                     throw new IOException("瓜子接口错误: " + GuaziCrypto.responseMessage(raw));
                 }
-                return GuaziCrypto.decodeResponse(raw);
+                return GuaziCrypto.decodeResponseValue(raw);
             }
         } catch (GuaziAuthException exception) {
             throw exception;
@@ -163,6 +212,19 @@ final class GuaziApi {
         } catch (Throwable ignored) {
             return "";
         }
+    }
+
+    private static String value(Map<String, String> values, String key, String fallback) {
+        String value = values == null ? "" : values.get(key);
+        return value == null || value.trim().isEmpty() ? fallback : value.trim();
+    }
+
+    private static String categorySub(String tid) {
+        if ("1".equals(tid)) return "5";
+        if ("2".equals(tid)) return "12";
+        if ("3".equals(tid)) return "22";
+        if ("4".equals(tid)) return "30";
+        return "";
     }
 
     private static String findPlayableUrl(JsonElement element) {

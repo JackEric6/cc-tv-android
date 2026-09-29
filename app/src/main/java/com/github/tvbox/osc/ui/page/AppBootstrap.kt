@@ -1,6 +1,5 @@
 package com.github.tvbox.osc.ui.page
 
-import android.widget.Toast
 import com.github.tvbox.osc.api.ApiConfig
 import com.github.tvbox.osc.event.RefreshEvent
 import com.github.tvbox.osc.server.ControlManager
@@ -93,7 +92,10 @@ object AppBootstrap {
             if (dataInitOk && !jarInitOk) {
                 val err = awaitLoadJar()
                 jarInitOk = true
-                if (err != null) toast(err + " jar load err")
+                if (err != null) {
+                    // JAR 是兼容能力，不能因为历史源加载失败在启动时打断原生源体验。
+                    com.github.tvbox.osc.util.LOG.i("jar load skipped: $err")
+                }
             }
             if (dataInitOk && jarInitOk) {
                 ApiConfig.get().warmSearchSpiders()
@@ -113,7 +115,7 @@ object AppBootstrap {
             }
 
             override fun notice(msg: String?) {
-                toast(msg)
+                com.github.tvbox.osc.util.LOG.i("config notice: $msg")
             }
         }, null)
     }
@@ -129,16 +131,9 @@ object AppBootstrap {
             }
 
             override fun notice(msg: String?) {
-                toast(msg)
+                com.github.tvbox.osc.util.LOG.i("jar notice: $msg")
             }
         })
     }
 
-    private fun toast(msg: String?) {
-        if (msg.isNullOrEmpty()) return
-        val context = com.github.tvbox.osc.base.App.getInstance()
-        android.os.Handler(android.os.Looper.getMainLooper()).post {
-            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-        }
-    }
 }

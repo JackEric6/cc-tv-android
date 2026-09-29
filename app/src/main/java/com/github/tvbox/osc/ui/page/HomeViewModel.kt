@@ -30,7 +30,12 @@ import kotlin.coroutines.resume
 
 class HomeViewModel : ViewModel() {
     companion object {
-        private const val FIXED_HOME_SOURCE_KEY = "xgzy"
+        private const val PREFERRED_HOME_SOURCE_KEY = "guazi"
+        private const val FALLBACK_HOME_SOURCE_KEY = "xgzy"
+        private const val IMMEDIATE_HOME_PARTITIONS = 4
+        private const val LAZY_HOME_PARTITION_DELAY_MS = 240L
+        private const val GUAZI_RECOMMENDATION_SOURCE_COUNT = 3
+        private const val GUAZI_RECOMMENDATION_SIZE = 5
 
         internal const val HOME_PARTITION_CONCURRENCY = 8
 
@@ -52,14 +57,21 @@ class HomeViewModel : ViewModel() {
             "$generation:$sortId"
     }
 
-    /** 首页固定使用西瓜源；用户配置的默认源仍保留给搜索、详情和播放流程。 */
+    /** 首页优先使用瓜子；瓜子首屏无有效内容时临时切换西瓜。 */
     private fun fixedHomeSource(): SourceBean? {
+        return fixedHomeSources().firstOrNull()
+    }
+
+    private fun fixedHomeSources(): List<SourceBean> {
         val sources = ApiConfig.get().getSourceBeanList()
-        return sources.firstOrNull { it.key == FIXED_HOME_SOURCE_KEY }
+        val preferred = sources.firstOrNull { it.key.equals(PREFERRED_HOME_SOURCE_KEY, true) }
+            ?: sources.firstOrNull { it.api?.contains(PREFERRED_HOME_SOURCE_KEY, true) == true }
+        val fallback = sources.firstOrNull { it.key.equals(FALLBACK_HOME_SOURCE_KEY, true) }
             ?: sources.firstOrNull {
-                it.key?.contains("xgzy", ignoreCase = true) == true ||
-                    it.api?.contains("xgzy", ignoreCase = true) == true
+                it.key?.contains(FALLBACK_HOME_SOURCE_KEY, ignoreCase = true) == true ||
+                    it.api?.contains(FALLBACK_HOME_SOURCE_KEY, ignoreCase = true) == true
             }
+        return listOfNotNull(preferred, fallback).distinctBy { it.key }
     }
 
     sealed interface PartitionState {
@@ -90,6 +102,7 @@ class HomeViewModel : ViewModel() {
     val sources = MutableStateFlow<List<SourceBean>>(emptyList())
     val allSorts = MutableStateFlow<List<MovieSort.SortData>>(emptyList())
     val sorts = MutableStateFlow<List<MovieSort.SortData>>(emptyList())
+    val recTitle = MutableStateFlow("推荐")
     val rec = MutableStateFlow(Rec(PartitionState.Loading, emptyList()))
     val partitions = MutableStateFlow<List<Partition>>(emptyList())
 
@@ -112,6 +125,7 @@ class HomeViewModel : ViewModel() {
     private val inFlightPartitions = HashSet<String>()
     private var loadGeneration = 0
     private var loadingSourceKey: String? = null
+    private var fallbackAttempted = false
     private var watchdogJob: Job? = null
 
     /**
@@ -157,7 +171,7 @@ class HomeViewModel : ViewModel() {
         sortViewModel.sortResult.observeForever(sortObserver)
         recViewModel.sortResult.observeForever(recObserver)
         actionViewModel.actionResult.observeForever(actionObserver)
-        sources.value = fixedHomeSource()?.let { listOf(it) }.orEmpty()
+        sources.value = fixedHomeSources()
         currentSource.value = fixedHomeSource()
         scope.launch {
             AppBootstrap.state.collect {
@@ -203,11 +217,12 @@ class HomeViewModel : ViewModel() {
     fun loadHome() {
         // 每次重新加载首页都从新资源站的第一个分类开始,避免复用旧站点分类 ID。
         activeSortId = null
+        fallbackAttempted = false
         // 新一轮加载使用新的代际,旧请求不能继续占用去重集合。
         synchronized(inFlightPartitions) {
             inFlightPartitions.clear()
         }
-        sources.value = fixedHomeSource()?.let { listOf(it) }.orEmpty()
+        sources.value = fixedHomeSources()
         val home = fixedHomeSource()
         if (home == null) {
             loadingSourceKey = null
@@ -224,6 +239,7 @@ class HomeViewModel : ViewModel() {
         sortsLoaded.value = false
         sorts.value = emptyList()
         allSorts.value = emptyList()
+        recTitle.value = "推荐"
         rec.value = Rec(PartitionState.Loading, emptyList())
         partitions.value = emptyList()
         val staleLoaders = ArrayList(loaders.values)
@@ -286,6 +302,7 @@ class HomeViewModel : ViewModel() {
         val recLoading = rec.value.state == PartitionState.Loading
         val partitionLoading = partitions.value.any { it.state == PartitionState.Loading }
         if (!recLoading && !partitionLoading) return
+        if (isGuaziSource() && !hasHomeContent() && switchToXigua()) return
         if (recLoading) {
             rec.value = Rec(PartitionState.Error, emptyList())
         }
@@ -348,23 +365,41 @@ class HomeViewModel : ViewModel() {
             return
         }
         // 首页响应必须明确属于当前资源站；未标记的迟到响应也不能覆盖切源后的状态。
-        if (!isCurrentSourceResult(key, absXml?.sourceKey)) return
+        if (absXml == null) {
+            if (isGuaziSource() && switchToXigua()) return
+            return
+        }
+        if (!isCurrentSourceResult(key, absXml.sourceKey)) return
 
-        val adjusted = if (absXml?.classes?.sortList != null) {
+        val adjusted = if (absXml.classes?.sortList != null) {
             DefaultConfig.adjustSort(key, absXml.classes.sortList, true)
         } else {
             DefaultConfig.adjustSort(key, ArrayList(), true)
         }
+        if (isGuaziSource() && adjusted.none { it.id != "my0" }) {
+            if (switchToXigua()) return
+        }
         allSorts.value = adjusted
 
+        val isGuazi = isGuaziSource()
         val recSort = adjusted.firstOrNull { it.id == "my0" }
-        if (recSort != null) {
+        if (recSort != null && !isGuazi) {
             loadRec(absXml)
+        } else if (isGuazi) {
+            // 瓜子顶部推荐不再复用首页接口的第一组固定内容，改由前三个标签的结果随机组成。
+            rec.value = Rec(PartitionState.Loading, emptyList())
         } else {
             rec.value = Rec(PartitionState.Empty, emptyList())
         }
 
-        val visible = adjusted.filter { it.id != "my0" }
+        val sourceSorts = adjusted.filter { it.id != "my0" }
+        recTitle.value = if (isGuazi) {
+            "推荐"
+        } else {
+            "推荐"
+        }
+        // 瓜子首页的第一个标签也要显示在模板中；顶部推荐单独从前三个标签取样。
+        val visible = sourceSorts
         sorts.value = visible
         val vertical = false
         val active = activeSortId?.takeIf { id -> visible.any { it.id == id } } ?: visible.firstOrNull()?.id
@@ -379,9 +414,7 @@ class HomeViewModel : ViewModel() {
         partitions.value = newPartitions
         sortsLoaded.value = true
         saveSnapshot()
-        newPartitions
-            .filter { it.state == PartitionState.Loading }
-            .forEach { p -> requestPartition(p, Partition.FIRST_PAGE) }
+        requestPartitionsProgressively(newPartitions)
     }
 
     private fun loadRec(absXml: AbsSortXml?) {
@@ -394,6 +427,21 @@ class HomeViewModel : ViewModel() {
         val key = loadingSourceKey ?: return
         if (!isCurrentSourceResult(key, absXml?.sourceKey)) return
         loadRec(absXml)
+    }
+
+    private fun requestPartitionsProgressively(partitionsToLoad: List<Partition>) {
+        val generation = loadGeneration
+        partitionsToLoad
+            .filter { it.state == PartitionState.Loading }
+            .forEachIndexed { index, partition ->
+                scope.launch {
+                    if (index >= IMMEDIATE_HOME_PARTITIONS) {
+                        delay((index - IMMEDIATE_HOME_PARTITIONS + 1) * LAZY_HOME_PARTITION_DELAY_MS)
+                    }
+                    if (generation != loadGeneration || loadingSourceKey.isNullOrEmpty()) return@launch
+                    requestPartition(partition, Partition.FIRST_PAGE)
+                }
+            }
     }
 
     private class LoaderResult(val stale: Boolean, val absXml: AbsXml?)
@@ -445,6 +493,68 @@ class HomeViewModel : ViewModel() {
             }
         }
         saveSnapshot()
+        if (isGuaziSource()) refreshGuaziRecommendation()
+        if (isGuaziSource() && !hasHomeContent()
+            && partitions.value.isNotEmpty()
+            && partitions.value.all { it.state == PartitionState.Ready
+                    || it.state == PartitionState.Empty
+                    || it.state == PartitionState.Error }
+        ) {
+            switchToXigua()
+        }
+    }
+
+    private fun isGuaziSource(): Boolean = loadingSourceKey.equals(PREFERRED_HOME_SOURCE_KEY, true)
+
+    private fun hasHomeContent(): Boolean = rec.value.videos.isNotEmpty()
+            || partitions.value.any { it.videos.isNotEmpty() }
+
+    private fun refreshGuaziRecommendation() {
+        val candidates = ArrayList<Movie.Video>()
+        val seen = HashSet<String>()
+        partitions.value
+            .take(GUAZI_RECOMMENDATION_SOURCE_COUNT)
+            .flatMap { it.videos }
+            .forEach { video ->
+                val identity = video.id?.takeIf { it.isNotBlank() }
+                    ?: "${video.name}|${video.pic}"
+                if (seen.add(identity)) candidates.add(video)
+            }
+        if (candidates.isEmpty()) return
+        rec.value = Rec(
+            PartitionState.Ready,
+            candidates.shuffled().take(GUAZI_RECOMMENDATION_SIZE),
+        )
+        saveSnapshot()
+    }
+
+    private fun switchToXigua(): Boolean {
+        if (!isGuaziSource() || fallbackAttempted) return false
+        val fallback = fixedHomeSources().firstOrNull { it.key.equals(FALLBACK_HOME_SOURCE_KEY, true) }
+            ?: return false
+        fallbackAttempted = true
+        val staleLoaders = ArrayList(loaders.values)
+        loaders.clear()
+        staleLoaders.forEach { it.release() }
+        synchronized(inFlightPartitions) { inFlightPartitions.clear() }
+        loadGeneration++
+        loadingSourceKey = fallback.key
+        currentSource.value = fallback
+        sources.value = fixedHomeSources()
+        sortsLoaded.value = false
+        sorts.value = emptyList()
+        allSorts.value = emptyList()
+        recTitle.value = "推荐"
+        rec.value = Rec(PartitionState.Loading, emptyList())
+        partitions.value = emptyList()
+        pageLoading.value = true
+        watchdogJob?.cancel()
+        watchdogJob = scope.launch {
+            delay(20_000)
+            onHomeLoadTimeout()
+        }
+        sortViewModel.getSort(fallback.key, true)
+        return true
     }
 
     fun loadMorePartition(partition: Partition) {

@@ -23,6 +23,8 @@ import com.github.tvbox.osc.bean.MovieSort;
 import com.github.tvbox.osc.bean.SourceBean;
 import com.github.tvbox.osc.event.RefreshEvent;
 import com.github.tvbox.osc.player.thirdparty.RemoteTVBox;
+import com.github.tvbox.osc.server.Cz4kBrowserSession;
+import com.github.tvbox.osc.server.NativeFanSource;
 import com.github.tvbox.osc.util.DefaultConfig;
 import com.github.tvbox.osc.util.FileUtils;
 import com.github.tvbox.osc.util.HawkConfig;
@@ -314,6 +316,36 @@ public class SourceViewModel extends ViewModel {
             }
         }
 
+        if (NativeFanSource.isSupported(sourceKey)) {
+            httpPrepareThreadPool.execute(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        String nativeJson = NativeFanSource.home(sourceKey);
+                        if (!isCurrentSortRequest(requestSeq)) return;
+                        AbsSortXml nativeSort = sortJson(sortResult, nativeJson);
+                        if (nativeSort == null) {
+                            postSortFailure(sourceKey, requestSeq);
+                            return;
+                        }
+                        AbsXml homeData = json(null, nativeJson, sourceKey);
+                        if (homeData != null && homeData.movie != null
+                                && homeData.movie.videoList != null
+                                && !homeData.movie.videoList.isEmpty()) {
+                            nativeSort.videoList = homeData.movie.videoList;
+                        }
+                        attachSortSource(sourceKey, nativeSort);
+                        postInitialSortResult(sourceKey, nativeSort, requestStartedAt);
+                        cacheSort(sourceKey, nativeSort);
+                    } catch (Throwable throwable) {
+                        LOG.i("native-home-error source=" + sourceKey + " error=" + throwable.getMessage());
+                        postSortFailure(sourceKey, requestSeq);
+                    }
+                }
+            });
+            return;
+        }
+
         final int type = sourceBean.getType();
         if (type == 3) {
             Runnable waitResponse = new Runnable() {
@@ -589,6 +621,21 @@ public class SourceViewModel extends ViewModel {
             listResult.postValue(null);
             return;
         }
+        if (NativeFanSource.isSupported(sourceKey)) {
+            httpPrepareThreadPool.execute(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        String nativeJson = NativeFanSource.category(sourceKey, sortData.id, page, sortData.filterSelect);
+                        json(listResult, nativeJson, sourceKey);
+                    } catch (Throwable throwable) {
+                        LOG.i("native-category-error source=" + sourceKey + " error=" + throwable.getMessage());
+                        listResult.postValue(null);
+                    }
+                }
+            });
+            return;
+        }
         int type = homeSourceBean.getType();
         if (type == 3) {
             homeCategoryThreadPool.execute(new Runnable() {
@@ -721,7 +768,7 @@ public class SourceViewModel extends ViewModel {
     interface HomeRecCallback {
         void done(List<Movie.Video> videos);
     }
-//    homeVideoContent
+    //    homeVideoContent
     void getHomeRecList(SourceBean sourceBean, ArrayList<String> ids, HomeRecCallback callback) {
         int type = sourceBean.getType();
         if (type == 3) {
@@ -825,7 +872,8 @@ public class SourceViewModel extends ViewModel {
         } else if (PUSH_AGENT.equals(sourceKey) && isCastPushUrl(urlid)) {
             sourceKey = PUSH_FALLBACK;
         }
-        String id = urlid;
+        final String id = urlid;
+        final String detailSourceKey = sourceKey;
     
         SourceBean sourceBean = ApiConfig.get().getSource(sourceKey);
         if (isPushFallback(sourceKey, sourceBean)) {
@@ -838,6 +886,29 @@ public class SourceViewModel extends ViewModel {
             // 未知 type 分支同形状),详情页走空态,而不是在下面 sourceBean.getType() 处 NPE
             LOG.i("echo--getDetail--source-null--" + sourceKey);
             detailResult.postValue(createEmptyDetail(sourceKey));
+            return;
+        }
+        if (NativeFanSource.isSupported(sourceKey)) {
+            final String nativeSourceKey = sourceKey;
+            final String nativeId = id;
+            detailPrepareThreadPool.execute(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        String nativeJson = NativeFanSource.detail(nativeSourceKey, nativeId);
+                        json(detailResult, nativeJson, nativeSourceKey);
+                    } catch (Throwable throwable) {
+                        LOG.i("native-detail-error source=" + nativeSourceKey + " error=" + throwable.getMessage());
+                        detailResult.postValue(createEmptyDetail(nativeSourceKey));
+                    }
+                }
+            });
+            return;
+        }
+        if ("cz4k".equals(sourceKey) && !Cz4kBrowserSession.isReady()) {
+            ensureCz4kSession(
+                    "https://www.cz4k.com/",
+                    () -> getDetail(detailSourceKey, id, fallback));
             return;
         }
         int type = sourceBean.getType();
@@ -974,6 +1045,27 @@ public class SourceViewModel extends ViewModel {
             postEmptySearchResult(result, sourceKey, searchToken);
             return;
         }
+        if (NativeFanSource.isSupported(sourceKey)) {
+            httpPrepareThreadPool.execute(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        String nativeJson = NativeFanSource.search(sourceKey, wd);
+                        json(result, nativeJson, sourceKey, searchToken, wd);
+                    } catch (Throwable throwable) {
+                        LOG.i("native-search-error source=" + sourceKey + " error=" + throwable.getMessage());
+                        postSearchFailure(result, sourceKey, searchToken, wd);
+                    }
+                }
+            });
+            return;
+        }
+        if ("cz4k".equals(sourceKey) && !Cz4kBrowserSession.isReady()) {
+            ensureCz4kSession(
+                    "https://www.cz4k.com/nimasile?q=" + encodeCz4kQuery(wd),
+                    () -> getSearch(sourceKey, wd, searchToken, result, requestTag));
+            return;
+        }
         int type = sourceBean.getType();
         if (type == 3) {
             try {
@@ -1102,6 +1194,27 @@ public class SourceViewModel extends ViewModel {
         }
     }
 
+    private String encodeCz4kQuery(String keyword) {
+        try {
+            return URLEncoder.encode(keyword == null ? "" : keyword, "UTF-8")
+                    .replace("+", "%20");
+        } catch (UnsupportedEncodingException ignored) {
+            return keyword == null ? "" : keyword;
+        }
+    }
+
+    private void ensureCz4kSession(String url, Runnable retry) {
+        mainHandler.post(() -> {
+            android.app.Activity activity = null;
+            try {
+                if (App.getInstance() != null) activity = App.getInstance().getCurrentActivity();
+            } catch (Throwable ignored) {
+                // Application startup or an external caller may not have an Activity yet.
+            }
+            Cz4kBrowserSession.ensureReady(activity, url, retry);
+        });
+    }
+
     // playerContent
     public void getPlay(String sourceKey, String playFlag, String progressKey, String url, String subtitleKey) {
         getPlayInternal(playRequestSeq, playResult, "play", sourceKey, playFlag, progressKey, url, subtitleKey);
@@ -1128,6 +1241,25 @@ public class SourceViewModel extends ViewModel {
             // 走 null 结果 = 取流失败,播放器按"解析失败"处理,不再在下面 NPE
             LOG.i("echo--getPlay--source-null--" + sourceKey);
             postPlayResult(seqHolder, resultChannel, requestSeq, null);
+            return;
+        }
+        if (NativeFanSource.isSupported(sourceKey)) {
+            httpPrepareThreadPool.execute(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        JSONObject result = NativeFanSource.play(sourceKey, playFlag, requestUrl);
+                        result.put("key", url);
+                        result.put("proKey", progressKey);
+                        result.put("subtKey", subtitleKey);
+                        if (!result.has("flag")) result.put("flag", playFlag);
+                        postPlayResult(seqHolder, resultChannel, requestSeq, result);
+                    } catch (Throwable throwable) {
+                        LOG.i("native-play-error source=" + sourceKey + " error=" + throwable.getMessage());
+                        postPlayResult(seqHolder, resultChannel, requestSeq, null);
+                    }
+                }
+            });
             return;
         }
         int type = sourceBean.getType();
@@ -1469,6 +1601,7 @@ public class SourceViewModel extends ViewModel {
         if ("juliang".equals(sourceKey)) return "https://juliang.app/";
         if ("yparse".equals(sourceKey)) return "https://yparse.com/";
         if ("ikunzy".equals(sourceKey)) return "https://ikunzy.com/";
+        if ("cz4k".equals(sourceKey)) return "https://www.cz4k.com/";
         if ("qiumu".equals(sourceKey)) return "https://old.sliiic.org/";
         if ("meitan".equals(sourceKey)) return "https://www.hmjy100.com/";
         if ("jingyan".equals(sourceKey)) return "https://www.wljingyan.com/";

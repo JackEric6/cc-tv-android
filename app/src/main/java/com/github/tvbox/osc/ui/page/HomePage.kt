@@ -128,6 +128,11 @@ internal fun sourceDisplayName(name: String?, key: String? = null): String {
     } while (short != previous)
 
     if (short == "360") return "360"
+    // 配置源名称有时以单个 emoji 作为图标前缀(🍄比特、🍓糯米等)。
+    // Kotlin 的 take(2) 会只取 emoji 的代理项，导致搜索源栏只显示图标。
+    if (short.length > 2 && Character.isSurrogate(short[0]) && Character.isSurrogate(short[1])) {
+        short = short.substring(2).trim()
+    }
     return short.take(2)
 }
 
@@ -138,6 +143,8 @@ fun HomePage(vm: HomeViewModel, contentPadding: PaddingValues = PaddingValues(0.
     val navBottom = contentPadding.calculateBottomPadding()
     val context = LocalContext.current
     val sources by vm.sources.collectAsState()
+    val currentSource by vm.currentSource.collectAsState()
+    val recTitle by vm.recTitle.collectAsState()
     val rec by vm.rec.collectAsState()
     val partitions by vm.partitions.collectAsState()
     val vodMenu = rememberVodCardMenuState()
@@ -304,7 +311,7 @@ fun HomePage(vm: HomeViewModel, contentPadding: PaddingValues = PaddingValues(0.
                 ) {
                     item(key = "rec") {
                         PartitionSection(
-                            title = "推荐",
+                            title = recTitle,
                             state = rec.state,
                             videos = rec.videos.drop(5),
                             onLoadMore = {},
@@ -323,7 +330,7 @@ fun HomePage(vm: HomeViewModel, contentPadding: PaddingValues = PaddingValues(0.
                         onCardClick = { video -> handleCardClick(vm, video, context) },
                         onCardLongClick = { video -> vodMenu.show(video) },
                         onOpenAll = {
-                            PartitionListActivity.startForPartition(context, p.sort)
+                            PartitionListActivity.startForPartition(context, p.sort, currentSource?.key)
                         },
                         onRetry = { vm.retryPartition(p) },
                     )

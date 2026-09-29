@@ -25,8 +25,9 @@ public class SearchHelper {
     private static final Set<String> SEARCH_VERIFIED_SOURCE_KEYS = new HashSet<>();
     private static final Set<String> BUNDLED_SEARCH_SOURCE_KEYS = new HashSet<>();
     private static final Set<String> WEB_CMS_SOURCE_KEYS = new HashSet<>();
-    private static final String BUNDLED_SEARCH_MIGRATION_KEY = "xgzy_bundled_search_sources_v2";
-    private static final String IKUN_SEARCH_MIGRATION_KEY = "xgzy_ikun_search_source_v1";
+    // 八个从旧配置恢复并随 APK 内置的源需要进入既有搜索选择。
+    // 提升迁移版本，确保已经运行过旧版本的用户也会自动获得这些源。
+    private static final String BUNDLED_SEARCH_MIGRATION_KEY = "xgzy_bundled_search_sources_v4";
 
     static {
         String[] verified = {
@@ -35,19 +36,26 @@ public class SearchHelper {
                 "bfzy", "zuida", "yzzy", "haohua", "xinlang", "dyttzy",
                 "ukuzy", "suboziyuan", "bdzy", "dzzy", "ryzy",
                 // Built-in sources with verified search adapters.
-                "ikanbot", "fhw88", "guazi", "ikunzy",
-                // Web CMS sources verified against live search and detail responses.
-                "qiumu", "cechi", "zanpian"
+                "ikanbot", "fhw88", "guazi",
+                // Web CMS sources exposed by the bundled source list.
+                "qiumu", "cechi", "zanpian", "cz4k",
+                // Sources reimplemented as native adapters.
+                "fan_bit", "fan_nomi", "fan_hot", "fan_moli",
+                "fan_cheese", "fan_juquan", "fan_jianpian",
+                // 最新配置直接使用中文 key；搜索页也必须允许这些 key 进入并发搜索。
+                "比特", "糯米", "热播", "茉莉", "视界", "奶酪", "剧圈", "荐片"
         };
         for (String key : verified) SEARCH_VERIFIED_SOURCE_KEYS.add(key);
 
         String[] bundled = {
-                "ikanbot", "fhw88", "qiumu", "cechi", "zanpian", "ikunzy"
+                "ikanbot", "fhw88", "qiumu", "cechi", "zanpian", "cz4k",
+                "fan_bit", "fan_nomi", "fan_hot", "fan_moli",
+                "fan_cheese", "fan_juquan", "fan_jianpian"
         };
         for (String key : bundled) BUNDLED_SEARCH_SOURCE_KEYS.add(key);
 
         String[] webCms = {
-                "qiumu", "cechi", "zanpian"
+                "qiumu", "cechi", "zanpian", "cz4k"
         };
         for (String key : webCms) WEB_CMS_SOURCE_KEYS.add(key);
     }
@@ -81,7 +89,6 @@ public class SearchHelper {
             mCheckSources = mCheckSourcesForApi == null ? null : mCheckSourcesForApi.get(api);
             if (mCheckSources == null || mCheckSources.isEmpty()) {
                 markBundledSearchMigration(api);
-                if (allSources.containsKey("ikunzy")) markIkunSearchMigration(api);
                 return allSources;
             }
 
@@ -89,10 +96,6 @@ public class SearchHelper {
             if (!isBundledSearchMigrationApplied(api)) {
                 mCheckSources = mergeBundledSearchSources(mCheckSources, allSources.keySet());
                 markBundledSearchMigration(api);
-            }
-            if (!isIkunSearchMigrationApplied(api) && allSources.containsKey("ikunzy")) {
-                mCheckSources = mergeIkunSearchSource(mCheckSources, allSources.keySet());
-                markIkunSearchMigration(api);
             }
             if (!before.equals(mCheckSources.toString())) {
                 mCheckSourcesForApi.put(api, mCheckSources);
@@ -129,20 +132,8 @@ public class SearchHelper {
         return merged;
     }
 
-    static HashMap<String, String> mergeIkunSearchSource(
-            HashMap<String, String> selected, Set<String> currentSourceKeys) {
-        HashMap<String, String> merged = selected == null
-                ? new HashMap<>() : new HashMap<>(selected);
-        if (currentSourceKeys.contains("ikunzy")) merged.putIfAbsent("ikunzy", "1");
-        return merged;
-    }
-
     private static boolean isBundledSearchMigrationApplied(String api) {
         return isSearchMigrationApplied(BUNDLED_SEARCH_MIGRATION_KEY, api);
-    }
-
-    private static boolean isIkunSearchMigrationApplied(String api) {
-        return isSearchMigrationApplied(IKUN_SEARCH_MIGRATION_KEY, api);
     }
 
     private static boolean isSearchMigrationApplied(String migrationKey, String api) {
@@ -155,10 +146,6 @@ public class SearchHelper {
 
     private static void markBundledSearchMigration(String api) {
         markSearchMigration(BUNDLED_SEARCH_MIGRATION_KEY, api);
-    }
-
-    private static void markIkunSearchMigration(String api) {
-        markSearchMigration(IKUN_SEARCH_MIGRATION_KEY, api);
     }
 
     private static void markSearchMigration(String migrationKey, String api) {

@@ -4,6 +4,7 @@ import android.util.Base64;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
 
 import java.nio.charset.StandardCharsets;
@@ -68,6 +69,11 @@ final class GuaziCrypto {
     }
 
     static JsonObject decodeResponse(String raw) throws Exception {
+        JsonElement value = decodeResponseValue(raw);
+        return value != null && value.isJsonObject() ? value.getAsJsonObject() : new JsonObject();
+    }
+
+    static JsonElement decodeResponseValue(String raw) throws Exception {
         JsonObject outer = JsonParser.parseString(raw).getAsJsonObject();
         if (!outer.has("data") || !outer.get("data").isJsonObject()) return new JsonObject();
         JsonObject data = outer.getAsJsonObject("data");
@@ -76,7 +82,7 @@ final class GuaziCrypto {
         String key = session.get("key").getAsString();
         String iv = session.get("iv").getAsString();
         String responseKey = data.get("response_key").getAsString();
-        return JsonParser.parseString(aesDecrypt(responseKey, key, iv)).getAsJsonObject();
+        return JsonParser.parseString(aesDecrypt(responseKey, key, iv));
     }
 
     static int responseCode(String raw) {

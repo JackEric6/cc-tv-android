@@ -40,6 +40,8 @@ class PartitionListVM : ViewModel() {
     var sort: MovieSort.SortData? = null
         private set
 
+    private var sourceKey: String = ""
+
     private val scope = viewModelScope
     private var initialized = false
 
@@ -90,11 +92,11 @@ class PartitionListVM : ViewModel() {
             svm.listResult.removeObserver(observer)
         }
 
-        fun request(page: Int, data: MovieSort.SortData, onDone: (LoaderResult) -> Unit) {
+        fun request(page: Int, sourceKey: String, data: MovieSort.SortData, onDone: (LoaderResult) -> Unit) {
             pending?.invoke(LoaderResult(true, null))
             pending = onDone
             busy = true
-            svm.getList(data, page)
+            if (sourceKey.isEmpty()) svm.getList(data, page) else svm.getList(sourceKey, data, page)
         }
     }
 
@@ -113,10 +115,11 @@ class PartitionListVM : ViewModel() {
         request(FIRST_PAGE)
     }
 
-    fun initIfNeed(sort: MovieSort.SortData) {
+    fun initIfNeed(sort: MovieSort.SortData, sourceKey: String = "") {
         if (initialized) return
         initialized = true
         this.sort = sort
+        this.sourceKey = sourceKey
         request(FIRST_PAGE)
     }
 
@@ -138,7 +141,7 @@ class PartitionListVM : ViewModel() {
         val data = sort ?: return
         scope.launch {
             val result = suspendCancellableCoroutine<LoaderResult> { cont ->
-                loader.request(page, data) { r -> if (cont.isActive) cont.resume(r) }
+                loader.request(page, sourceKey, data) { r -> if (cont.isActive) cont.resume(r) }
             }
             if (!result.stale) applyResult(page, result.absXml)
         }

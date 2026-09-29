@@ -41,6 +41,7 @@ public class JarLoader {
     private final ConcurrentHashMap<String, Object> locks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, String> siteJarKeys = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, String> aliases = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Boolean> runtimeProbeSpiders = new ConcurrentHashMap<>();
     private final ProtectedInitJar protectedInitJar = new ProtectedInitJar();
     private volatile String recent = MAIN_KEY;
 
@@ -142,6 +143,7 @@ public class JarLoader {
             }
             Method method = clz.getMethod("init", Context.class);
             method.invoke(null, App.getInstance());
+            protectedInitJar.observeRuntimeLoader(clz);
             return true;
         } catch (Throwable e) {
             e.printStackTrace();
@@ -329,6 +331,8 @@ public class JarLoader {
                 spider.initApi(new SpiderApi());
                 spider.init(App.getInstance(), ext);
                 spiders.put(spKey, spider);
+                probeEncryptedExt(key, ext, loader);
+                probeSpider(key, spider);
                 Log.i(TAG, "getSpider success key=" + spKey);
                 return spider;
             } catch (Throwable e) {
@@ -336,6 +340,145 @@ public class JarLoader {
                 e.printStackTrace();
                 return new SpiderNull();
             }
+        }
+    }
+
+    private static void probeEncryptedExt(String key, String ext, DexClassLoader loader) {
+        try {
+            if (!App.getInstance().getPackageName().endsWith(".probe") || TextUtils.isEmpty(ext)) return;
+            Class<?> nativeClass = loader.loadClass("com.github.catvod.spider.DexNative");
+            Method decrypt = nativeClass.getMethod("decrypt", String.class);
+            Object value = decrypt.invoke(null, ext);
+            appendRuntimeProbe("=== EXT_DECRYPT " + key + " ===\n" + String.valueOf(value));
+            if ("fan_juquan".equals(key)) probeNativeSign(nativeClass);
+        } catch (Throwable error) {
+            appendRuntimeProbe("=== EXT_DECRYPT " + key + " ===\nERROR " + error);
+        }
+    }
+
+    private static void probeNativeSign(Class<?> nativeClass) {
+        try {
+            Method sign = nativeClass.getMethod("noxSign", String.class, String.class, String.class);
+            String appKey = "5a9w6x58dsq6";
+            String time = "1790667880";
+            String body = "vod_id=148135";
+            String path = "vodDetail";
+            String[][] probes = new String[][]{
+                    {appKey, time, body}, {appKey, body, time},
+                    {time, appKey, body}, {time, body, appKey},
+                    {body, appKey, time}, {body, time, appKey},
+                    {path, time, body}, {path, body, time},
+                    {body, path, time}, {body, time, path},
+                    {appKey, path, time}, {path, appKey, time}
+            };
+            StringBuilder output = new StringBuilder("=== NOX_SIGN_PROBE ===\n");
+            for (String[] probe : probes) {
+                Object result = sign.invoke(null, probe[0], probe[1], probe[2]);
+                output.append(probe[0]).append('|').append(probe[1]).append('|').append(probe[2])
+                        .append(" => ").append(String.valueOf(result)).append('\n');
+            }
+            appendRuntimeProbe(output.toString());
+        } catch (Throwable error) {
+            appendRuntimeProbe("=== NOX_SIGN_PROBE ===\nERROR " + error);
+        }
+    }
+
+    private void probeSpider(String key, Spider spider) {
+        try {
+            if (!App.getInstance().getPackageName().endsWith(".probe") || spider == null) return;
+            if (runtimeProbeSpiders.putIfAbsent(key, Boolean.TRUE) != null) return;
+            new Thread(() -> {
+                StringBuilder output = new StringBuilder();
+                output.append("=== ").append(key).append(" ===\n");
+                output.append("HOME\n").append(probeCall(() -> spider.homeContent(true))).append('\n');
+                output.append("CATEGORY_1_1\n").append(probeCall(() -> spider.categoryContent("1", "1", false, new HashMap<>()))).append('\n');
+                String search = probeCall(() -> spider.searchContent("庆余年", false));
+                output.append("SEARCH_庆余年\n").append(search).append('\n');
+                appendDetailAndPlayerProbe(output, spider, search);
+                appendRuntimeProbe(output.toString());
+            }, "spider2-probe-" + key).start();
+        } catch (Throwable ignored) {
+            LOG.d("JarLoader", "runtime spider probe setup failed: " + ignored);
+        }
+    }
+
+    /** Probe one or two search hits deeply enough to recover detail/play contracts. */
+    private static void appendDetailAndPlayerProbe(StringBuilder output, Spider spider, String search) {
+        try {
+            JSONObject searchObject = new JSONObject(search);
+            org.json.JSONArray list = searchObject.optJSONArray("list");
+            if (list == null) return;
+            int count = Math.min(list.length(), 2);
+            for (int i = 0; i < count; i++) {
+                JSONObject item = list.optJSONObject(i);
+                if (item == null) continue;
+                String id = item.optString("vod_id");
+                if (TextUtils.isEmpty(id)) continue;
+                String detail = probeCall(() -> spider.detailContent(java.util.Collections.singletonList(id)));
+                output.append("DETAIL_").append(id).append('\n').append(detail).append('\n');
+                appendPlayerProbe(output, spider, detail);
+            }
+        } catch (Throwable error) {
+            output.append("DETAIL_PROBE_ERROR ").append(error).append('\n');
+        }
+    }
+
+    private static void appendPlayerProbe(StringBuilder output, Spider spider, String detail) {
+        try {
+            JSONObject detailObject = new JSONObject(detail);
+            org.json.JSONArray list = detailObject.optJSONArray("list");
+            if (list == null || list.length() == 0) return;
+            JSONObject item = list.optJSONObject(0);
+            if (item == null) return;
+            String from = item.optString("vod_play_from");
+            String playUrl = item.optString("vod_play_url");
+            output.append("PLAY_SOURCES\n").append(from).append('\n').append(playUrl).append('\n');
+            String[] flags = from.split("\\$\\$\\$");
+            String[] groups = playUrl.split("\\$\\$\\$", -1);
+            int count = Math.min(flags.length, groups.length);
+            for (int i = 0; i < count; i++) {
+                final String flag = flags[i];
+                String first = groups[i].split("#", 2)[0];
+                String[] pair = first.split("\\$", 2);
+                if (pair.length != 2) continue;
+                final String playerId = pair[1];
+                String player = probeCall(() -> spider.playerContent(flag, playerId, new java.util.ArrayList<>()));
+                output.append("PLAYER_").append(flag).append('_').append(pair[0]).append('\n')
+                        .append(player).append('\n');
+            }
+        } catch (Throwable error) {
+            output.append("PLAYER_PROBE_ERROR ").append(error).append('\n');
+        }
+    }
+
+    private interface ProbeCall {
+        String run() throws Throwable;
+    }
+
+    private static String probeCall(ProbeCall call) {
+        try {
+            String value = call.run();
+            return value == null ? "" : value;
+        } catch (Throwable error) {
+            return "ERROR " + error;
+        }
+    }
+
+    private static synchronized void appendRuntimeProbe(String value) {
+        File root = App.getInstance().getExternalCacheDir();
+        if (root == null) return;
+        File dir = new File(root, "spider2-runtime");
+        if (!dir.exists() && !dir.mkdirs()) return;
+        FileOutputStream output = null;
+        try {
+            output = new FileOutputStream(new File(dir, "spiders.log"), true);
+            output.write(value.getBytes("UTF-8"));
+            output.write('\n');
+            output.flush();
+        } catch (Throwable ignored) {
+            // Probe-only artifact.
+        } finally {
+            if (output != null) try { output.close(); } catch (Throwable ignored) { }
         }
     }
 

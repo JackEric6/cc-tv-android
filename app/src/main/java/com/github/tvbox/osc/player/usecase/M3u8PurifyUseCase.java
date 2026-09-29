@@ -1,8 +1,6 @@
 package com.github.tvbox.osc.player.usecase;
 
 import android.content.Context;
-import android.widget.Toast;
-
 import com.github.tvbox.osc.server.ControlManager;
 import com.github.tvbox.osc.server.RemoteServer;
 import com.github.tvbox.osc.util.LOG;
@@ -31,11 +29,9 @@ public final class M3u8PurifyUseCase {
         void onM3u8ProxyUrl(String proxyUrl, String sourceUrl);
     }
 
-    private final Context context;
     private final Callback callback;
 
     public M3u8PurifyUseCase(Context context, Callback callback) {
-        this.context = context.getApplicationContext();
         this.callback = callback;
     }
 
@@ -123,7 +119,6 @@ public final class M3u8PurifyUseCase {
             String proxyUrl = ControlManager.get().getAddress(true) + "proxyM3u8?k=" + key;
             callback.onM3u8ProxyUrl(proxyUrl, url);
             callback.startPlayUrl(proxyUrl, headers);
-            Toast.makeText(context, "已移除视频广告 " + M3u8.currentAdCount + " 条", Toast.LENGTH_SHORT).show();
         }
     }
 

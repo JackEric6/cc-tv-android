@@ -2,6 +2,7 @@ package com.github.catvod.net;
 
 import androidx.collection.ArrayMap;
 
+import com.github.tvbox.osc.base.App;
 import com.github.tvbox.osc.util.LOG;
 import com.github.tvbox.osc.util.SSL.SSLSocketFactoryCompat;
 import com.github.tvbox.osc.util.OkGoHelper;
@@ -20,6 +21,12 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
+import okhttp3.Interceptor;
+import okio.Buffer;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.nio.charset.Charset;
 
 public class OkHttp {
 
@@ -35,10 +42,76 @@ public class OkHttp {
     public static synchronized OkHttpClient client() {
         if (client != null) return client;
         OkHttpClient base = OkGoHelper.getDefaultClient();
-        if (base != null) return client = base.newBuilder().dns(dns()).build();
+        if (base != null) {
+            OkHttpClient.Builder builder = base.newBuilder().dns(dns());
+            addRuntimeProbe(builder);
+            return client = builder.build();
+        }
         OkHttpClient.Builder builder = new OkHttpClient.Builder().dns(dns()).proxySelector(OkGoHelper.proxySelector()).proxyAuthenticator(OkGoHelper.proxyAuthenticator()).connectTimeout(TIMEOUT, TimeUnit.MILLISECONDS).readTimeout(TIMEOUT, TimeUnit.MILLISECONDS).writeTimeout(TIMEOUT, TimeUnit.MILLISECONDS);
         setOkHttpSsl(builder);
+        addRuntimeProbe(builder);
         return client = builder.build();
+    }
+
+    private static void addRuntimeProbe(OkHttpClient.Builder builder) {
+        try {
+            if (App.getInstance().getPackageName().endsWith(".probe")) {
+                builder.addInterceptor(new RuntimeProbeInterceptor());
+            }
+        } catch (Throwable ignored) {
+            // Probe-only instrumentation must never affect normal networking.
+        }
+    }
+
+    private static final class RuntimeProbeInterceptor implements Interceptor {
+        @Override
+        public Response intercept(Chain chain) throws java.io.IOException {
+            Request request = chain.request();
+            StringBuilder text = new StringBuilder();
+            text.append("REQUEST ").append(request.method()).append(' ').append(request.url()).append('\n');
+            for (String name : request.headers().names()) {
+                text.append("HEADER ").append(name).append(": ").append(request.header(name)).append('\n');
+            }
+            text.append("BODY ").append(requestBody(request.body())).append('\n');
+            Response response = chain.proceed(request);
+            text.append("RESPONSE ").append(response.code()).append('\n');
+            try {
+                text.append("RESP_BODY ").append(response.peekBody(512 * 1024).string()).append('\n');
+            } catch (Throwable ignored) {
+                text.append("RESP_BODY <unavailable>\n");
+            }
+            appendRuntimeProbe(text.toString());
+            return response;
+        }
+    }
+
+    private static String requestBody(RequestBody body) {
+        if (body == null) return "";
+        try {
+            Buffer buffer = new Buffer();
+            body.writeTo(buffer);
+            return buffer.readString(Charset.forName("UTF-8"));
+        } catch (Throwable ignored) {
+            return "<unavailable>";
+        }
+    }
+
+    private static synchronized void appendRuntimeProbe(String value) {
+        File root = App.getInstance().getExternalCacheDir();
+        if (root == null) return;
+        File dir = new File(root, "spider2-runtime");
+        if (!dir.exists() && !dir.mkdirs()) return;
+        FileOutputStream output = null;
+        try {
+            output = new FileOutputStream(new File(dir, "http.log"), true);
+            output.write(value.getBytes("UTF-8"));
+            output.write('\n');
+            output.flush();
+        } catch (Throwable ignored) {
+            // Probe-only artifact.
+        } finally {
+            if (output != null) try { output.close(); } catch (Throwable ignored) { }
+        }
     }
 
     public static OkHttpClient player() {
