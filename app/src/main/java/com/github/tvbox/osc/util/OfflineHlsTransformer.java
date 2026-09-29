@@ -66,8 +66,13 @@ final class OfflineHlsTransformer {
         thread.setDaemon(true);
         return thread;
     });
-    // 单个 HLS 任务参考 iOS 实现保持 6 路动态并行；任务总数仍由共享的 5 个下载名额限制。
-    private static final int DIRECT_SEGMENT_CONCURRENCY = 6;
+    // 瓜子 CDN 单连接通常有带宽上限；单个 HLS 任务提高到 24 路动态并行，
+    // 仍然按“完成一个补一个”调度，不会一次性创建整部剧集的全部连接。
+    // 任务总数仍由共享下载名额限制，避免多部影片同时下载时失控。
+    private static final int DIRECT_SEGMENT_CONCURRENCY = 32;
+    // 高并发分片下载时减少 read/write 次数；分片仍按独立临时文件写入，
+    // 不改变暂停、断点续传和原子合并语义。
+    private static final int DIRECT_SEGMENT_BUFFER_SIZE = 1024 * 1024;
     // CDN 偶发 502/超时不能让整集在几百个分片后直接失败；沿用 iOS 的
     // 分片级续传模型，但把瞬时错误交给带退避的有限重试。
     private static final int DIRECT_SEGMENT_RETRIES = 6;
@@ -171,7 +176,8 @@ final class OfflineHlsTransformer {
             if (slotReleased.compareAndSet(false, true)) OfflineVideoCache.releaseDownloadSlot();
         };
         try {
-            String playlist = getText(playlistUrl, headers);
+            ResolvedPlaylist initial = getText(playlistUrl, headers);
+            String playlist = initial.body;
             if (TextUtils.isEmpty(playlist) || handle.isCancelled()) {
                 if (!handle.isPauseRequested()) {
                     ACTIVE.remove(key, handle);
@@ -182,10 +188,14 @@ final class OfflineHlsTransformer {
                 releaseSlot.run();
                 return;
             }
+            // 瓜子播放入口先由本地服务 302 到动态 CDN m3u8；相对分片必须以
+            // 跳转后的最终地址为基准，不能继续用 127.0.0.1 的本地入口解析。
+            playlistUrl = initial.finalUrl;
             String selectedUrl = selectVariant(playlistUrl, playlist);
             if (!TextUtils.equals(selectedUrl, playlistUrl)) {
-                playlist = getText(selectedUrl, headers);
-                playlistUrl = selectedUrl;
+                ResolvedPlaylist variant = getText(selectedUrl, headers);
+                playlist = variant.body;
+                playlistUrl = variant.finalUrl;
             }
             if (!isFiniteVodPlaylist(playlist)) {
                 ACTIVE.remove(key, handle);
@@ -513,7 +523,7 @@ final class OfflineHlsTransformer {
             }
             long mergedBytes = 0L;
             try (OutputStream output = new BufferedOutputStream(new FileOutputStream(outputPart))) {
-                byte[] buffer = new byte[256 * 1024];
+                byte[] buffer = new byte[DIRECT_SEGMENT_BUFFER_SIZE];
                 for (File segmentFile : segmentFiles) {
                     try (InputStream input = new BufferedInputStream(new FileInputStream(segmentFile))) {
                         int read;
@@ -801,7 +811,7 @@ final class OfflineHlsTransformer {
         }
     }
 
-    private static String getText(String url, Map<String, String> headers) throws IOException {
+    private static ResolvedPlaylist getText(String url, Map<String, String> headers) throws IOException {
         Request.Builder builder = new Request.Builder().url(url);
         for (Map.Entry<String, String> entry : headers.entrySet()) {
             if (!TextUtils.isEmpty(entry.getKey()) && entry.getValue() != null) {
@@ -809,8 +819,22 @@ final class OfflineHlsTransformer {
             }
         }
         try (Response response = OfflineVideoCache.downloadClient().newCall(builder.build()).execute()) {
-            if (!response.isSuccessful() || response.body() == null) return "";
-            return response.body().string();
+            if (!response.isSuccessful() || response.body() == null) {
+                return new ResolvedPlaylist(url, "");
+            }
+            return new ResolvedPlaylist(
+                    response.request().url().toString(),
+                    response.body().string());
+        }
+    }
+
+    private static final class ResolvedPlaylist {
+        final String finalUrl;
+        final String body;
+
+        ResolvedPlaylist(String finalUrl, String body) {
+            this.finalUrl = TextUtils.isEmpty(finalUrl) ? "" : finalUrl;
+            this.body = body == null ? "" : body;
         }
     }
 

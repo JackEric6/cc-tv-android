@@ -29,20 +29,20 @@ final class GuaziAdapter implements CmsAdapter {
     private static final String DEFAULT_HOME_PID = "3";
     private static final int MAX_HOME_SORTS = 14;
     private static final HomeSectionSpec[] FIXED_HOME_SECTIONS = {
-            new HomeSectionSpec("74151", "9月重磅新剧"),
-            new HomeSectionSpec("46296", "最新热播电影"),
-            new HomeSectionSpec("19260", "TC抢先看"),
-            new HomeSectionSpec("17613", "豆瓣电影TOP250"),
-            new HomeSectionSpec("130", "Netflix新片推荐"),
-            new HomeSectionSpec("10772", "入站必追?累计2亿追番"),
-            new HomeSectionSpec("24058", "爱奇艺剧场"),
-            new HomeSectionSpec("24066", "优酷剧场"),
-            new HomeSectionSpec("24057", "腾讯剧场"),
-            new HomeSectionSpec("24067", "芒果剧场"),
-            new HomeSectionSpec("38579", "大厂VIP短剧专区"),
-            new HomeSectionSpec("16560", "历届奥斯卡最佳影片"),
-            new HomeSectionSpec("8", "冷门悬疑佳片Top20"),
-            new HomeSectionSpec("6663", "近期热门综艺"),
+            new HomeSectionSpec("74151", "9月重磅新剧", "4"),
+            new HomeSectionSpec("46296", "最新热播电影", "3"),
+            new HomeSectionSpec("19260", "TC抢先看", "3"),
+            new HomeSectionSpec("17613", "豆瓣电影TOP250", "3"),
+            new HomeSectionSpec("130", "Netflix新片推荐", "1"),
+            new HomeSectionSpec("10772", "入站必追?累计2亿追番", "5"),
+            new HomeSectionSpec("24058", "爱奇艺剧场", "4"),
+            new HomeSectionSpec("24066", "优酷剧场", "4"),
+            new HomeSectionSpec("24057", "腾讯剧场", "4"),
+            new HomeSectionSpec("24067", "芒果剧场", "4"),
+            new HomeSectionSpec("38579", "大厂VIP短剧专区", "16"),
+            new HomeSectionSpec("16560", "历届奥斯卡最佳影片", "3"),
+            new HomeSectionSpec("8", "冷门悬疑佳片Top20", "3"),
+            new HomeSectionSpec("6663", "近期热门综艺", "6"),
     };
     private static final String[] HOME_CONTAINER_KEYS = {"list", "data", "result", "payload"};
 
@@ -81,12 +81,10 @@ final class GuaziAdapter implements CmsAdapter {
         }
         root.add("class", classes);
 
+        // 首页首轮只交付栏目定义，栏目内容由 HomeViewModel 按优先顺序并发请求。
+        // 不能在这里等待第一个片单，否则分类列表和首屏内容会被最慢的栏目绑定。
         JsonArray list = new JsonArray();
-        if (!sorts.isEmpty()) {
-            JsonObject first = categoryObject(sorts.get(0), 1, Collections.<String, String>emptyMap());
-            list = array(first, "list");
-        }
-        root.addProperty("code", list.size() > 0 ? 1 : 0);
+        root.addProperty("code", 1);
         root.addProperty("page", 1);
         root.addProperty("pagecount", 1);
         root.addProperty("limit", 30);
@@ -136,51 +134,19 @@ final class GuaziAdapter implements CmsAdapter {
     }
 
     /**
-     * 瓜子首页的导航是“页面 -> 片单”的两级结构。只探测首批导航页和
-     * iOS 端固定优先片单所在的 pid，避免启动时把整个首页目录全部拉完。
+     * 固定首页片单的 pid 已由 iOS 端和当前接口配置确认，首轮无需再探测“页面 -> 片单”导航。
+     * 这样 CMS 首页请求只返回栏目定义，真正的片单内容由分类请求并发拉取。
      */
     private static synchronized List<MovieCategory> loadHomeSorts() throws Exception {
         if (!HOME_SORTS.isEmpty()) return HOME_SORTS;
 
-        LinkedHashMap<String, HomePlaylist> discovered = new LinkedHashMap<>();
-        try {
-            JsonArray navigation = GuaziApi.get().homeNavigation();
-            List<String> pageIds = new ArrayList<>();
-            java.util.HashSet<String> seenPageIds = new java.util.HashSet<>();
-            for (JsonElement element : navigation) {
-                if (!element.isJsonObject()) continue;
-                JsonObject item = element.getAsJsonObject();
-                String type = firstString(item, "type", "p_type", "kind");
-                String pid = firstString(item, "pid", "id", "page_id");
-                if (pid.isEmpty() || "0".equals(pid)) continue;
-                if (!type.isEmpty() && !"video".equalsIgnoreCase(type)
-                        && !"recommend".equalsIgnoreCase(type)
-                        && !"2".equals(type)) continue;
-                if (seenPageIds.add(pid)) pageIds.add(pid);
-            }
-            for (String pid : pageIds) {
-                try {
-                    JsonObject page = GuaziApi.get().homePage(pid);
-                    collectPlaylists(page, pid, discovered);
-                } catch (Throwable ignored) {
-                    // 单个首页栏目失效不应阻断其余栏目。
-                }
-            }
-        } catch (Throwable ignored) {
-            // 固定 show_id 仍可通过默认 pid 请求，不因导航接口失败而丢失首页标签。
-        }
-
         List<MovieCategory> ordered = new ArrayList<>();
         HOME_PLAYLISTS.clear();
         for (HomeSectionSpec section : FIXED_HOME_SECTIONS) {
-            HomePlaylist discoveredPlaylist = findPlaylistByShowId(discovered.values(), section.showId);
-            String pid = discoveredPlaylist == null || discoveredPlaylist.pid.isEmpty()
-                    ? DEFAULT_HOME_PID : discoveredPlaylist.pid;
+            String pid = TextUtils.isEmpty(section.pid) ? DEFAULT_HOME_PID : section.pid;
             String id = "guazi-playlist:" + pid + ":" + section.showId;
             MovieCategory category = new MovieCategory(id, section.title, true);
-            JsonArray embedded = discoveredPlaylist == null
-                    ? new JsonArray() : discoveredPlaylist.embedded;
-            HomePlaylist playlist = new HomePlaylist(category, section.showId, pid, embedded);
+            HomePlaylist playlist = new HomePlaylist(category, section.showId, pid, new JsonArray());
             HOME_PLAYLISTS.put(id, playlist);
             ordered.add(category);
         }
@@ -239,6 +205,12 @@ final class GuaziAdapter implements CmsAdapter {
     static List<String> fixedHomeTitlesForTest() {
         List<String> result = new ArrayList<>();
         for (HomeSectionSpec section : FIXED_HOME_SECTIONS) result.add(section.title);
+        return result;
+    }
+
+    static List<String> fixedHomePidsForTest() {
+        List<String> result = new ArrayList<>();
+        for (HomeSectionSpec section : FIXED_HOME_SECTIONS) result.add(section.pid);
         return result;
     }
 
@@ -621,10 +593,12 @@ final class GuaziAdapter implements CmsAdapter {
     private static final class HomeSectionSpec {
         final String showId;
         final String title;
+        final String pid;
 
-        HomeSectionSpec(String showId, String title) {
+        HomeSectionSpec(String showId, String title, String pid) {
             this.showId = showId;
             this.title = title;
+            this.pid = pid;
         }
     }
 

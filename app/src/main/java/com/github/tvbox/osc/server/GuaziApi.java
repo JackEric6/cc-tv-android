@@ -111,15 +111,21 @@ final class GuaziApi {
     }
 
     private JsonElement requestValue(String path, JsonObject params) throws IOException {
+        String token;
         synchronized (TOKEN_LOCK) {
-            String token = KV.get(TOKEN_KEY, "");
+            token = KV.get(TOKEN_KEY, "");
             if (token.isEmpty()) token = registerLocked();
-            try {
-                return doRequestValue(path, params, token);
-            } catch (GuaziAuthException authException) {
-                KV.put(TOKEN_KEY, "");
-                String renewed = registerLocked();
-                return doRequestValue(path, params, renewed);
+        }
+        try {
+            return doRequestValue(path, params, token);
+        } catch (GuaziAuthException authException) {
+            synchronized (TOKEN_LOCK) {
+                String current = KV.get(TOKEN_KEY, "");
+                if (current.isEmpty() || current.equals(token)) {
+                    KV.put(TOKEN_KEY, "");
+                    current = registerLocked();
+                }
+                return doRequestValue(path, params, current);
             }
         }
     }

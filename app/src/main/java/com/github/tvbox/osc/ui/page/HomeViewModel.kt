@@ -134,6 +134,7 @@ class HomeViewModel : ViewModel() {
     private var loadingSourceKey: String? = null
     private var fallbackAttempted = false
     private var watchdogJob: Job? = null
+    private var homeLoadStarted = false
 
     /**
      * Keep the last usable home state per source so switching back does not
@@ -182,8 +183,13 @@ class HomeViewModel : ViewModel() {
         currentSource.value = fixedHomeSource()
         scope.launch {
             AppBootstrap.state.collect {
-                bootReady.value = it is AppBootstrap.Boot.Ready
-                if (it is AppBootstrap.Boot.Ready) loadHome()
+                bootReady.value = it is AppBootstrap.Boot.HomeReady || it is AppBootstrap.Boot.Ready
+                if (it is AppBootstrap.Boot.Loading) {
+                    homeLoadStarted = false
+                } else if (bootReady.value && !homeLoadStarted) {
+                    homeLoadStarted = true
+                    loadHome()
+                }
             }
         }
         scope.launch {
@@ -272,9 +278,9 @@ class HomeViewModel : ViewModel() {
                 .filter { it.state == PartitionState.Loading }
                 .forEach { requestPartition(it, Partition.FIRST_PAGE) }
         } else {
-            // The home screen always uses the Xigua-style template, which
-            // needs the recommendation feed and all category sections.
-            sortViewModel.getSort(loadingSourceKey, true)
+            // 瓜子顶部推荐由前三个栏目拼成，不再额外请求通用推荐接口；
+            // 分类定义返回后立即并发加载首页栏目。
+            sortViewModel.getSort(loadingSourceKey, !isGuaziSource())
         }
     }
 
