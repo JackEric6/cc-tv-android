@@ -23,9 +23,10 @@ class SearchConcurrencyTest {
 
     @Test
     fun searchSourcesUseRequestedPriorityOrder() {
-        val keys = listOf("juliang", "xgzy", "moduzy", "ffzy", "lzi", "other")
+        val keys = listOf("juliang", "xgzy", "moduzy", "ffzy", "lzi", "guazi", "other")
         val ordered = keys.sortedWith(compareBy { SearchViewModel.sourcePriority(it, it) })
-        assertEquals(listOf("xgzy", "ffzy", "lzi", "moduzy", "juliang", "other"), ordered)
+        assertEquals(listOf("guazi", "xgzy", "ffzy", "lzi", "moduzy", "juliang", "other"), ordered)
+        assertEquals(0, SearchViewModel.sourcePriority("guazi", "瓜子"))
     }
 
     @Test
@@ -42,13 +43,14 @@ class SearchConcurrencyTest {
             listOf(
                 result("other", 1),
                 result("moduzy", 4),
+                result("guazi", 6),
                 result("xgzy", 3),
                 result("ffzy", 2),
                 result("lzi", 5),
             ),
         )
         assertEquals(
-            listOf("xgzy", "ffzy", "lzi", "moduzy", "other"),
+            listOf("guazi", "xgzy", "ffzy", "lzi", "moduzy", "other"),
             displayed.map { it.sourceKey },
         )
     }

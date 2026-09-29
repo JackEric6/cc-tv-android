@@ -270,7 +270,7 @@ internal fun LayoutSwitchCard(
     }
 }
 
-// 源名称已统一为 2~3 个字，筛选栏收窄，避免占据搜索结果主体空间。
+// 源名称统一为两字简称，筛选栏收窄，避免占据搜索结果主体空间。
 internal val SearchRailWidth = 92.dp
 
 @Composable

@@ -55,7 +55,6 @@ final class WebCmsRequestProcess implements RequestProcess {
     private static final int MAX_PLAYBACK_LINES = 8;
     private static final Set<String> ALLOWED_HOSTS = new HashSet<>(Arrays.asList(
             "old.sliiic.org",
-            "www.0451yccz.com",
             "www.hmjy100.com",
             "www.wljingyan.com",
             "www.kdndt.net",

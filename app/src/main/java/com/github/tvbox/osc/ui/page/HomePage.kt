@@ -112,12 +112,11 @@ private val HomeTopBarTrailingActionsWidth = 40.dp * 2 + HomeTopBarControlSpacin
 
 private val SourceNameSuffix = Regex("(资源站|采集站|采集网|采集|资源)$")
 
-/** 订阅源选择器用的短名称，避免把配置里的描述性后缀挤进三列卡片。 */
+/** 源选择器统一使用两字简称。 */
 internal fun sourceDisplayName(name: String?, key: String? = null): String {
     val raw = name.orEmpty().trim().ifEmpty { key.orEmpty().trim() }
-    if (raw.isEmpty()) return "订阅源"
+    if (raw.isEmpty()) return "影视"
     if (raw.contains("爱奇艺")) return "奇艺"
-    // 搜索源筛选栏只保留短标签；电影天堂是唯一的特殊长名，统一简称为“天堂”。
     if (raw.contains("电影天堂")) return "天堂"
 
     var short = raw
@@ -127,12 +126,7 @@ internal fun sourceDisplayName(name: String?, key: String? = null): String {
         short = short.replace(SourceNameSuffix, "").trim()
     } while (short != previous)
 
-    val chineseCount = short.count { it in '\u4e00'..'\u9fff' }
-    return if (chineseCount > 3) {
-        short.take(3)
-    } else {
-        short
-    }
+    return short.take(2)
 }
 
 @Composable

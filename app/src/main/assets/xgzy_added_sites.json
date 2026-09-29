@@ -2,7 +2,7 @@
   "sites": [
     {
       "key": "ikanbot",
-      "name": "爱看机器人",
+      "name": "爱看",
       "type": 1,
       "api": "http://127.0.0.1:9978/ikanbot?source=https%3A%2F%2Fwww1.ikanbot.com",
       "searchable": 1,
@@ -26,7 +26,7 @@
     },
     {
       "key": "guazi",
-      "name": "瓜子影视",
+      "name": "瓜子",
       "type": 1,
       "api": "http://127.0.0.1:9978/cms/guazi?source=guazi",
       "searchable": 1,
@@ -37,7 +37,7 @@
     },
     {
       "key": "qiumu",
-      "name": "球幕影院",
+      "name": "球幕",
       "type": 1,
       "api": "http://127.0.0.1:9978/webcms?source=https%3A%2F%2Fold.sliiic.org&profile=maccms",
       "searchable": 1,
@@ -58,162 +58,8 @@
       "timeout": 45
     },
     {
-      "key": "beike",
-      "name": "贝壳影院",
-      "type": 1,
-      "api": "http://127.0.0.1:9978/webcms?source=https%3A%2F%2Fwww.0451yccz.com&profile=maccms",
-      "searchable": 1,
-      "quickSearch": 1,
-      "changeable": 1,
-      "filterable": 0,
-      "timeout": 25
-    },
-    {
-      "key": "meitan",
-      "name": "煤炭影院",
-      "type": 1,
-      "api": "http://127.0.0.1:9978/webcms?source=https%3A%2F%2Fwww.hmjy100.com&profile=maccms",
-      "searchable": 1,
-      "quickSearch": 1,
-      "changeable": 1,
-      "filterable": 0,
-      "timeout": 25
-    },
-    {
-      "key": "jingyan",
-      "name": "精研影院",
-      "type": 1,
-      "api": "http://127.0.0.1:9978/webcms?source=https%3A%2F%2Fwww.wljingyan.com&profile=maccms",
-      "searchable": 1,
-      "quickSearch": 1,
-      "changeable": 1,
-      "filterable": 0,
-      "timeout": 25
-    },
-    {
-      "key": "kaida",
-      "name": "凯达影院",
-      "type": 1,
-      "api": "http://127.0.0.1:9978/webcms?source=https%3A%2F%2Fwww.kdndt.net&profile=maccms",
-      "searchable": 1,
-      "quickSearch": 1,
-      "changeable": 1,
-      "filterable": 0,
-      "timeout": 25
-    },
-    {
-      "key": "shuicao",
-      "name": "水草影院",
-      "type": 1,
-      "api": "http://127.0.0.1:9978/webcms?source=http%3A%2F%2Fwww.knshuichuli.com&profile=maccms",
-      "searchable": 1,
-      "quickSearch": 1,
-      "changeable": 1,
-      "filterable": 0,
-      "timeout": 25
-    },
-    {
-      "key": "hongguo",
-      "name": "红果电影",
-      "type": 1,
-      "api": "http://127.0.0.1:9978/webcms?source=https%3A%2F%2Fm.syshuoyuan.com&profile=maccms",
-      "searchable": 1,
-      "quickSearch": 1,
-      "changeable": 1,
-      "filterable": 0,
-      "timeout": 25
-    },
-    {
-      "key": "laoniu",
-      "name": "老牛影视",
-      "type": 1,
-      "api": "http://127.0.0.1:9978/webcms?source=https%3A%2F%2Fshanghai.365che.net&profile=maccms",
-      "searchable": 1,
-      "quickSearch": 1,
-      "changeable": 1,
-      "filterable": 0,
-      "timeout": 25
-    },
-    {
-      "key": "ningmeng",
-      "name": "柠檬影院",
-      "type": 1,
-      "api": "http://127.0.0.1:9978/webcms?source=https%3A%2F%2Fwww.nmgflw.com&profile=maccms",
-      "searchable": 1,
-      "quickSearch": 1,
-      "changeable": 1,
-      "filterable": 0,
-      "timeout": 25
-    },
-    {
-      "key": "xingchen",
-      "name": "星辰影院",
-      "type": 1,
-      "api": "http://127.0.0.1:9978/webcms?source=http%3A%2F%2Fwww.chgxdq.com&profile=maccms",
-      "searchable": 1,
-      "quickSearch": 1,
-      "changeable": 1,
-      "filterable": 0,
-      "timeout": 25
-    },
-    {
-      "key": "qingpingguo",
-      "name": "青苹果影院",
-      "type": 1,
-      "api": "http://127.0.0.1:9978/webcms?source=https%3A%2F%2Fyz.sdhfcj.com&profile=maccms",
-      "searchable": 1,
-      "quickSearch": 1,
-      "changeable": 1,
-      "filterable": 0,
-      "timeout": 25
-    },
-    {
-      "key": "zhongxing",
-      "name": "中星影院",
-      "type": 1,
-      "api": "http://127.0.0.1:9978/webcms?source=https%3A%2F%2Fwww.sczxsx.com&profile=maccms",
-      "searchable": 1,
-      "quickSearch": 1,
-      "changeable": 1,
-      "filterable": 0,
-      "timeout": 25
-    },
-    {
-      "key": "haier",
-      "name": "海尔影院",
-      "type": 1,
-      "api": "http://127.0.0.1:9978/webcms?source=https%3A%2F%2Fwww.nbhaierxin.com&profile=maccms",
-      "searchable": 1,
-      "quickSearch": 1,
-      "changeable": 1,
-      "filterable": 0,
-      "timeout": 25
-    },
-    {
-      "key": "huilv",
-      "name": "汇绿影院",
-      "type": 1,
-      "api": "http://127.0.0.1:9978/webcms?source=https%3A%2F%2Fwww.zzhuilv.cn&profile=fed",
-      "searchable": 1,
-      "quickSearch": 1,
-      "changeable": 1,
-      "filterable": 0,
-      "timeout": 25
-    },
-    {
-      "key": "shiji",
-      "name": "世纪影院",
-      "type": 1,
-      "api": "http://127.0.0.1:9978/webcms?source=http%3A%2F%2Fm.sjtx-oa.com&profile=maccms",
-      "searchable": 1,
-      "quickSearch": 1,
-      "changeable": 1,
-      "filterable": 0,
-      "timeout": 25
-    },
-    {
       "key": "cechi",
-      "name": "策驰影视",
+      "name": "策驰",
       "type": 1,
       "api": "http://127.0.0.1:9978/webcms?source=http%3A%2F%2Fwww.lanyajc.com&profile=maccms",
       "searchable": 1,
@@ -223,43 +69,10 @@
       "timeout": 25
     },
     {
-      "key": "kuaikan",
-      "name": "快看影视",
-      "type": 1,
-      "api": "http://127.0.0.1:9978/webcms?source=http%3A%2F%2Fwww.ikang.org&profile=maccms",
-      "searchable": 1,
-      "quickSearch": 1,
-      "changeable": 1,
-      "filterable": 0,
-      "timeout": 25
-    },
-    {
-      "key": "wushuang",
-      "name": "无双影院",
-      "type": 1,
-      "api": "http://127.0.0.1:9978/webcms?source=http%3A%2F%2Fwww.fjsycjs.com&profile=maccms",
-      "searchable": 1,
-      "quickSearch": 1,
-      "changeable": 1,
-      "filterable": 0,
-      "timeout": 25
-    },
-    {
       "key": "zanpian",
-      "name": "赞片网",
+      "name": "赞片",
       "type": 1,
       "api": "http://127.0.0.1:9978/webcms?source=https%3A%2F%2Fwww.zanpian.org&profile=zanpian",
-      "searchable": 1,
-      "quickSearch": 1,
-      "changeable": 1,
-      "filterable": 0,
-      "timeout": 25
-    },
-    {
-      "key": "ys88",
-      "name": "88影视",
-      "type": 1,
-      "api": "http://127.0.0.1:9978/webcms?source=https%3A%2F%2Fwww.88ystv.com&profile=maccms",
       "searchable": 1,
       "quickSearch": 1,
       "changeable": 1,

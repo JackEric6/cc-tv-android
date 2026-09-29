@@ -30,8 +30,6 @@ public class SourceViewModelTest {
     public void addedWebSitesUseTheirOwnPlaybackReferers() {
         assertEquals("https://old.sliiic.org/",
                 SourceViewModel.cmsRefererForSourceKey("qiumu"));
-        assertEquals("https://www.0451yccz.com/",
-                SourceViewModel.cmsRefererForSourceKey("beike"));
         assertEquals("https://www.hmjy100.com/",
                 SourceViewModel.cmsRefererForSourceKey("meitan"));
         assertEquals("https://www.wljingyan.com/",

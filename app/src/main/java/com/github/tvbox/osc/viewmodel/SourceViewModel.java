@@ -1470,7 +1470,6 @@ public class SourceViewModel extends ViewModel {
         if ("yparse".equals(sourceKey)) return "https://yparse.com/";
         if ("ikunzy".equals(sourceKey)) return "https://ikunzy.com/";
         if ("qiumu".equals(sourceKey)) return "https://old.sliiic.org/";
-        if ("beike".equals(sourceKey)) return "https://www.0451yccz.com/";
         if ("meitan".equals(sourceKey)) return "https://www.hmjy100.com/";
         if ("jingyan".equals(sourceKey)) return "https://www.wljingyan.com/";
         if ("kaida".equals(sourceKey)) return "https://www.kdndt.net/";

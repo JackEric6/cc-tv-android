@@ -939,6 +939,14 @@ public class ApiConfig {
             JsonArray sites = infoJson.has("sites") && infoJson.get("sites").isJsonArray()
                     ? infoJson.getAsJsonArray("sites") : new JsonArray();
             if (!infoJson.has("sites") || !infoJson.get("sites").isJsonArray()) infoJson.add("sites", sites);
+            for (int index = sites.size() - 1; index >= 0; index--) {
+                JsonElement site = sites.get(index);
+                if (site != null && site.isJsonObject()
+                        && "beike".equals(DefaultConfig.safeJsonString(
+                        site.getAsJsonObject(), "key", ""))) {
+                    sites.remove(index);
+                }
+            }
             Set<String> existingKeys = new HashSet<>();
             for (JsonElement site : sites) {
                 if (site != null && site.isJsonObject()) {

@@ -20,7 +20,10 @@ class HomePageSourceNameTest {
     }
 
     @Test
-    fun limitsLongChineseNames() {
-        assertEquals("超长名", sourceDisplayName("超长名称资源站"))
+    fun limitsSourceNamesToTwoCharacters() {
+        assertEquals("超长", sourceDisplayName("超长名称资源站"))
+        assertEquals("爱看", sourceDisplayName("爱看机器人"))
+        assertEquals("瓜子", sourceDisplayName("瓜子影视", "guazi"))
+        assertEquals("影视", sourceDisplayName(null))
     }
 }

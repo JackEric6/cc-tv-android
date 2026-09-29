@@ -174,18 +174,19 @@ class SearchViewModel : ViewModel() {
             val normalizedKey = key.orEmpty().trim().lowercase(java.util.Locale.ROOT)
             val normalizedName = name.orEmpty().replace("资源", "").replace("采集", "")
             return when {
-                normalizedKey == "xgzy" || normalizedName.contains("西瓜") -> 0
-                normalizedKey == "ffzy" || normalizedName.contains("非凡") -> 1
-                normalizedKey == "lzi" || normalizedName.contains("量子") -> 2
+                normalizedKey == "guazi" || normalizedName.contains("瓜子") -> 0
+                normalizedKey == "xgzy" || normalizedName.contains("西瓜") -> 1
+                normalizedKey == "ffzy" || normalizedName.contains("非凡") -> 2
+                normalizedKey == "lzi" || normalizedName.contains("量子") -> 3
                 normalizedKey == "moduzy" || normalizedKey == "modu"
-                    || normalizedName.contains("魔都") -> 3
+                    || normalizedName.contains("魔都") -> 4
                 else -> 100
             }
         }
 
         /**
          * 只调整搜索结果的展示顺序，不改变实际发起搜索请求的源顺序。
-         * 请求仍按配置顺序并发，结果回来后再把西瓜、非凡、量子、魔都置顶。
+         * 请求仍按配置顺序并发，结果回来后再把瓜子、西瓜、非凡、量子、魔都置顶。
          */
         internal fun sortResultsForDisplay(results: List<SourceResult>): List<SourceResult> =
             results.sortedWith(

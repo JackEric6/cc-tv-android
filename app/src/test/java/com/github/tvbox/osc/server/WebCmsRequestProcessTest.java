@@ -94,20 +94,7 @@ public class WebCmsRequestProcessTest {
     }
 
     @Test
-    public void discoversBeikeSearchFormRoute() {
-        WebCmsRequestProcess.SearchRequest request =
-                WebCmsRequestProcess.buildSearchRequestFromForm(
-                        Jsoup.parse("<form method='get' action='/vod/search/'>"
-                                + "<input name='wd'></form>",
-                                "https://www.0451yccz.com/"),
-                        "https://www.0451yccz.com/", "沉默的荣耀", 1, "maccms");
-
-        assertEquals("https://www.0451yccz.com/vod/search/?wd=%E6%B2%89%E9%BB%98%E7%9A%84%E8%8D%A3%E8%80%80",
-                request.path);
-    }
-
-    @Test
-    public void extractsBeikePosterFromLazyloadContainer() {
+    public void extractsMacCmsPosterFromLazyloadContainer() {
         WebCmsRequestProcess process = new WebCmsRequestProcess();
         JsonArray result = process.parseCards(Jsoup.parse(
                 "<html><head><title>搜索结果</title></head><body>"
@@ -116,7 +103,7 @@ public class WebCmsRequestProcessTest {
                         + "<div class='module-item-pic'><div class='lazyload' "
                         + "data-original='https://img.example/chenmo.jpg'></div></div>"
                         + "</a></div></div></body></html>",
-                "https://www.0451yccz.com/vod/search/?wd=%E6%B2%89%E9%BB%98%E7%9A%84%E8%8D%A3%E8%80%80"),
+                "https://source.example/vod/search/?wd=%E6%B2%89%E9%BB%98%E7%9A%84%E8%8D%A3%E8%80%80"),
                 "maccms", "沉默的荣耀");
 
         assertEquals(1, result.size());
@@ -280,7 +267,7 @@ public class WebCmsRequestProcessTest {
     @Test
     public void detailPlaybackSkipsEpisodesFromOtherRecommendedTitles() {
         WebCmsRequestProcess process = new WebCmsRequestProcess();
-        String detailUrl = "https://www.0451yccz.com/vod/bkdlj/60143.html";
+        String detailUrl = "https://source.example/vod/bkdlj/60143.html";
         Map<String, java.util.LinkedHashMap<String, String>> lines =
                 process.extractPlayableEpisodeLines(
                         Jsoup.parse("<div>"
@@ -292,7 +279,7 @@ public class WebCmsRequestProcessTest {
         assertEquals(1, lines.size());
         assertEquals(1, lines.get("1").size());
         assertTrue(lines.get("1").containsValue(
-                "第01集$https://www.0451yccz.com/vod/bkdlj/play/60143-1-1.html"));
+                "第01集$https://source.example/vod/bkdlj/play/60143-1-1.html"));
     }
 
     @Test
@@ -322,9 +309,9 @@ public class WebCmsRequestProcessTest {
         assertEquals("沉默的荣耀", WebCmsRequestProcess.resolveDetailTitle(
                 "策驰影视", "策驰影视", "沉默的荣耀免费在线观看剧情简介:1949年8月"));
         assertEquals("庆余年 第一季", WebCmsRequestProcess.resolveDetailTitle(
-                "贝壳影院为您提供最新《庆余年 第一季",
-                "《庆余年 第一季》连续剧热播-贝壳影院",
-                "贝壳影院为您提供最新《庆余年 第一季》免费在线观看"));
+                "资源站点为您提供最新《庆余年 第一季",
+                "《庆余年 第一季》连续剧热播-资源站点",
+                "资源站点为您提供最新《庆余年 第一季》免费在线观看"));
     }
 
     @Test

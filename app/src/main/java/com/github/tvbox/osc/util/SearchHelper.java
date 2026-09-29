@@ -25,7 +25,7 @@ public class SearchHelper {
     private static final Set<String> SEARCH_VERIFIED_SOURCE_KEYS = new HashSet<>();
     private static final Set<String> BUNDLED_SEARCH_SOURCE_KEYS = new HashSet<>();
     private static final Set<String> WEB_CMS_SOURCE_KEYS = new HashSet<>();
-    private static final String BUNDLED_SEARCH_MIGRATION_KEY = "xgzy_bundled_search_sources_v1";
+    private static final String BUNDLED_SEARCH_MIGRATION_KEY = "xgzy_bundled_search_sources_v2";
 
     static {
         String[] verified = {
@@ -36,20 +36,17 @@ public class SearchHelper {
                 // Built-in sources with verified search adapters.
                 "ikanbot", "fhw88", "guazi",
                 // Web CMS sources verified against live search and detail responses.
-                "qiumu", "beike", "cechi", "zanpian"
+                "qiumu", "cechi", "zanpian"
         };
         for (String key : verified) SEARCH_VERIFIED_SOURCE_KEYS.add(key);
 
         String[] bundled = {
-                "ikanbot", "fhw88", "qiumu", "beike", "cechi", "zanpian"
+                "ikanbot", "fhw88", "qiumu", "cechi", "zanpian"
         };
         for (String key : bundled) BUNDLED_SEARCH_SOURCE_KEYS.add(key);
 
         String[] webCms = {
-                "qiumu", "beike", "meitan", "jingyan", "kaida", "shuicao",
-                "hongguo", "laoniu", "ningmeng", "xingchen", "qingpingguo",
-                "zhongxing", "haier", "huilv", "shiji", "cechi", "kuaikan",
-                "wushuang", "zanpian", "ys88"
+                "qiumu", "cechi", "zanpian"
         };
         for (String key : webCms) WEB_CMS_SOURCE_KEYS.add(key);
     }

@@ -14,7 +14,7 @@
     },
     {
       "key": "360zy",
-      "name": "360",
+      "name": "三六",
       "type": 1,
       "api": "http://127.0.0.1:9978/cms?source=https%3A%2F%2F360zyzz.com%2Fapi.php%2Fprovide%2Fvod",
       "searchable": 1,
@@ -62,7 +62,7 @@
     },
     {
       "key": "wsyzy",
-      "name": "无水印",
+      "name": "无水",
       "type": 1,
       "api": "http://127.0.0.1:9978/cms?source=http%3A%2F%2Fapi.wsyzy.net%2Fapi.php%2Fprovide%2Fvod%2Ffrom%2Fwsym3u8%2F",
       "searchable": 1,
@@ -237,7 +237,7 @@
     },
     {
       "key": "dyttzy",
-      "name": "电影天堂",
+      "name": "天堂",
       "type": 1,
       "api": "http://127.0.0.1:9978/cms?source=https%3A%2F%2Fcaiji.dyttzyapi.com%2Fapi.php%2Fprovide%2Fvod%2F",
       "searchable": 1,
@@ -471,7 +471,7 @@
     },
     {
       "key": "yparse",
-      "name": "云解析",
+      "name": "云解",
       "type": 1,
       "api": "http://127.0.0.1:9978/cms?source=https%3A%2F%2Fapi.yparse.com%2Fapi%2Fjson",
       "searchable": 1,
@@ -512,7 +512,7 @@
     },
     {
       "key": "ikunzy",
-      "name": "ikun",
+      "name": "艾坤",
       "type": 1,
       "api": "http://127.0.0.1:9978/cms?source=https%3A%2F%2Fikunzyapi.com%2Fapi.php%2Fprovide%2Fvod",
       "searchable": 1,
@@ -557,7 +557,7 @@
     },
     {
       "key": "m766",
-      "name": "黄道长",
+      "name": "道长",
       "type": 1,
       "api": "http://127.0.0.1:9978/cms?source=https%3A%2F%2Fm766.com%2Fapi.php%2Fprovide%2Fvod%2Fat%2Fjson",
       "searchable": 0,
