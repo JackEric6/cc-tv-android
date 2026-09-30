@@ -16,8 +16,10 @@ import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * 厂长站点的正常浏览器会话。
@@ -72,6 +74,7 @@ public final class Cz4kBrowserSession {
         String normalized = text.toLowerCase(java.util.Locale.ROOT);
         String[] markers = {
                 "雷池", "safeline", "安全检查", "访问验证", "请稍候",
+                "正在验证", "验证中", "验证失败", "点击完成验证",
                 "checking your browser", "verifying you are human", "challenge",
                 "403 forbidden", "access denied", "请输入验证码", "人机验证"
         };
@@ -79,6 +82,51 @@ public final class Cz4kBrowserSession {
             if (normalized.contains(marker.toLowerCase(java.util.Locale.ROOT))) return true;
         }
         return false;
+    }
+
+    /**
+     * 验证页判定必须同时考虑页面文案和站点的验证组件，不能用正文长度判断。
+     */
+    public static boolean isValidationPage(String title, String text, String url,
+                                           boolean hasChallengeWidget, String widgetState) {
+        if (hasChallengeWidget) return true;
+        String combined = (title == null ? "" : title) + " "
+                + (text == null ? "" : text);
+        if (isChallengeText(combined)) return true;
+        String normalizedTitle = title == null ? "" : title.trim().toLowerCase(Locale.ROOT);
+        return normalizedTitle.equals("访问验证")
+                || normalizedTitle.equals("安全验证")
+                || normalizedTitle.equals("verification")
+                || normalizedTitle.equals("access verification");
+    }
+
+    /**
+     * 读取当前页面及站点根域的 Cookie，兼容 gaze.red/www.gaze.red 的跳转。
+     * 调用方必须在主线程执行此方法。
+     */
+    public static String collectCookies(String url) {
+        CookieManager manager = CookieManager.getInstance();
+        try {
+            manager.flush();
+        } catch (Throwable ignored) {
+            // 老版本 WebView 可能不支持同步 flush。
+        }
+        LinkedHashMap<String, String> cookies = new LinkedHashMap<>();
+        addCookies(cookies, manager.getCookie(url));
+        String host = hostOf(url);
+        if (isHost(host, "gaze.red")) {
+            addCookies(cookies, manager.getCookie("https://gaze.red/"));
+            addCookies(cookies, manager.getCookie("https://www.gaze.red/"));
+        } else if (isHost(host, "cz4k.com")) {
+            addCookies(cookies, manager.getCookie("https://cz4k.com/"));
+            addCookies(cookies, manager.getCookie("https://www.cz4k.com/"));
+        }
+        StringBuilder result = new StringBuilder();
+        for (Map.Entry<String, String> entry : cookies.entrySet()) {
+            if (result.length() > 0) result.append("; ");
+            result.append(entry.getKey()).append('=').append(entry.getValue());
+        }
+        return result.toString();
     }
 
     /**
@@ -94,7 +142,7 @@ public final class Cz4kBrowserSession {
             return;
         }
         if (activity == null || activity.isFinishing()) {
-            markReady("");
+            cancelWarmup();
             return;
         }
         synchronized (WAITERS) {
@@ -135,7 +183,7 @@ public final class Cz4kBrowserSession {
         if (activity == null || activity.isFinishing()
                 || (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.JELLY_BEAN_MR1
                 && activity.isDestroyed())) {
-            markReady("");
+            cancelWarmup();
             return;
         }
         if (!isWarmupOpening()) return;
@@ -152,7 +200,7 @@ public final class Cz4kBrowserSession {
         hiddenHost.addView(hiddenWebView, new FrameLayout.LayoutParams(1, 1));
         View decor = activity.getWindow().getDecorView();
         if (!(decor instanceof ViewGroup)) {
-            markReady("");
+            cancelWarmup();
             return;
         }
         ((ViewGroup) decor).addView(hiddenHost, new ViewGroup.LayoutParams(1, 1));
@@ -194,28 +242,51 @@ public final class Cz4kBrowserSession {
         WebView currentWebView = webView;
         if (finished || currentWebView == null) return;
         currentWebView.evaluateJavascript(
-                "(function(){return JSON.stringify({title:document.title||'',"
-                        + "text:(document.body&&document.body.innerText)||''});})()",
+                "(function(){var w=document.querySelector('cap-widget');"
+                        + "return JSON.stringify({title:document.title||'',"
+                        + "text:(document.body&&document.body.innerText)||'',"
+                        + "url:location.href||'',"
+                        + "hasChallengeWidget:!!w,"
+                        + "widgetState:w?(w.getAttribute('data-state')||''):''});})()",
                 value -> inspectPage(currentWebView, value));
     };
 
     private static void inspectPage(WebView currentWebView, String value) {
         if (finished || currentWebView == null || currentWebView != webView) return;
-        String text = decodeJavascriptString(value);
-        if (isChallengeText(text)) {
+        String state = decodeJavascriptString(value);
+        String title = "";
+        String text = "";
+        String pageUrl = currentWebView.getUrl();
+        boolean hasChallengeWidget = false;
+        String widgetState = "";
+        try {
+            org.json.JSONObject json = new org.json.JSONObject(state);
+            title = json.optString("title", "");
+            text = json.optString("text", "");
+            pageUrl = json.optString("url", pageUrl);
+            hasChallengeWidget = json.optBoolean("hasChallengeWidget", false);
+            widgetState = json.optString("widgetState", "");
+        } catch (Throwable ignored) {
+            text = state;
+        }
+        boolean validationPage = isValidationPage(title, text, pageUrl,
+                hasChallengeWidget, widgetState);
+        if (validationPage) {
             if (System.currentTimeMillis() - openedAt < MAX_WAIT_MS) {
                 MAIN.postDelayed(checkPage, CHECK_DELAY_MS);
             }
             return;
         }
-        if (text.length() < 40 && System.currentTimeMillis() - openedAt < MAX_WAIT_MS) {
+        String cookies = collectCookies(pageUrl);
+        if (isHost(sessionHost, "gaze.red") && TextUtils.isEmpty(cookies)
+                && System.currentTimeMillis() - openedAt < MAX_WAIT_MS) {
             MAIN.postDelayed(checkPage, CHECK_DELAY_MS);
             return;
         }
-        String cookies = CookieManager.getInstance().getCookie(currentWebView.getUrl());
-        finished = true;
-        CookieManager.getInstance().flush();
-        markReady(cookies);
+        if (!markReady(cookies, true, pageUrl)
+                && System.currentTimeMillis() - openedAt < MAX_WAIT_MS) {
+            MAIN.postDelayed(checkPage, CHECK_DELAY_MS);
+        }
     }
 
     private static String decodeJavascriptString(String value) {
@@ -227,18 +298,28 @@ public final class Cz4kBrowserSession {
         }
     }
 
-    /** 由 WebView 页面在正常加载完成后调用。 */
-    public static void markReady(String cookies) {
+    /** 由 WebView 页面在正常加载完成后调用。返回 false 表示仍未满足完成条件。 */
+    public static boolean markReady(String cookies) {
+        return markReady(cookies, true, sessionHost);
+    }
+
+    public static boolean markReady(String cookies, boolean verifiedPage, String pageUrl) {
+        boolean requiresCookie = isHost(sessionHost, "gaze.red");
+        if (!verifiedPage || !sameHost(pageUrl, sessionHost)
+                || (requiresCookie && TextUtils.isEmpty(cookies))) {
+            return false;
+        }
         destroyBackgroundWebView();
         synchronized (WAITERS) {
             if (!TextUtils.isEmpty(cookies)) cookieHeader = cookies;
-            // 厂长旧流程允许无验证 Cookie 的普通页面直接继续；gaze 则必须拿到同域 Cookie。
-            ready = !TextUtils.isEmpty(cookies) || isHost(sessionHost, "cz4k.com");
+            // 厂长普通页面可以没有挑战 Cookie；Gaze 必须同时具备正常页面和同域 Cookie。
+            ready = !requiresCookie || !TextUtils.isEmpty(cookies);
             warmupOpening = false;
             List<Runnable> callbacks = new ArrayList<>(WAITERS);
             WAITERS.clear();
             for (Runnable callback : callbacks) MAIN.post(callback);
         }
+        return ready;
     }
 
     /** 用户返回或页面被取消时，允许下次搜索重新打开浏览器。 */
@@ -295,6 +376,18 @@ public final class Cz4kBrowserSession {
     private static boolean isHost(String value, String expected) {
         return !TextUtils.isEmpty(value) && (value.equals(expected)
                 || value.endsWith("." + expected));
+    }
+
+    private static void addCookies(LinkedHashMap<String, String> target, String header) {
+        if (TextUtils.isEmpty(header)) return;
+        for (String item : header.split(";")) {
+            String cookie = item.trim();
+            int separator = cookie.indexOf('=');
+            if (separator <= 0) continue;
+            String name = cookie.substring(0, separator).trim();
+            String value = cookie.substring(separator + 1).trim();
+            if (!name.isEmpty() && !value.isEmpty()) target.put(name, value);
+        }
     }
 
     private static final class ViewParentHelper {

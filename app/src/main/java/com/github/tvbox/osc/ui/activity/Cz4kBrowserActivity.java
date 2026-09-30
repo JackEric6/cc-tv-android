@@ -15,8 +15,6 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 
-import androidx.annotation.Nullable;
-
 import com.github.tvbox.osc.base.BaseActivity;
 import com.github.tvbox.osc.server.Cz4kBrowserSession;
 
@@ -96,29 +94,55 @@ public class Cz4kBrowserActivity extends BaseActivity {
         public void run() {
             if (finished || webView == null) return;
             webView.evaluateJavascript(
-                    "(function(){return JSON.stringify({title:document.title||''," 
-                            + "text:(document.body&&document.body.innerText)||''});})()",
+                    "(function(){var w=document.querySelector('cap-widget');"
+                            + "return JSON.stringify({title:document.title||'',"
+                            + "text:(document.body&&document.body.innerText)||'',"
+                            + "url:location.href||'',"
+                            + "hasChallengeWidget:!!w,"
+                            + "widgetState:w?(w.getAttribute('data-state')||''):''});})()",
                     value -> inspectPage(value));
         }
     };
 
     private void inspectPage(String value) {
         if (finished || webView == null) return;
-        String text = decodeJavascriptString(value);
-        if (Cz4kBrowserSession.isChallengeText(text)) {
+        String state = decodeJavascriptString(value);
+        String title = "";
+        String text = "";
+        String pageUrl = webView.getUrl();
+        boolean hasChallengeWidget = false;
+        String widgetState = "";
+        try {
+            org.json.JSONObject json = new org.json.JSONObject(state);
+            title = json.optString("title", "");
+            text = json.optString("text", "");
+            pageUrl = json.optString("url", pageUrl);
+            hasChallengeWidget = json.optBoolean("hasChallengeWidget", false);
+            widgetState = json.optString("widgetState", "");
+        } catch (Throwable ignored) {
+            text = state;
+        }
+        if (Cz4kBrowserSession.isValidationPage(title, text, pageUrl,
+                hasChallengeWidget, widgetState)) {
             if (System.currentTimeMillis() - openedAt < MAX_WAIT_MS) {
                 handler.postDelayed(checkPage, CHECK_DELAY_MS);
             }
             return;
         }
-        String cookies = CookieManager.getInstance().getCookie(webView.getUrl());
-        if (text.length() < 40 && System.currentTimeMillis() - openedAt < MAX_WAIT_MS) {
+        String cookies = Cz4kBrowserSession.collectCookies(pageUrl);
+        if (pageUrl != null
+                && pageUrl.toLowerCase(java.util.Locale.ROOT).contains("gaze.red")
+                && cookies.isEmpty()
+                && System.currentTimeMillis() - openedAt < MAX_WAIT_MS) {
             handler.postDelayed(checkPage, CHECK_DELAY_MS);
             return;
         }
-        finished = true;
-        Cz4kBrowserSession.markReady(cookies);
-        finish();
+        if (Cz4kBrowserSession.markReady(cookies, true, pageUrl)) {
+            finished = true;
+            finish();
+        } else if (System.currentTimeMillis() - openedAt < MAX_WAIT_MS) {
+            handler.postDelayed(checkPage, CHECK_DELAY_MS);
+        }
     }
 
     private String decodeJavascriptString(String value) {

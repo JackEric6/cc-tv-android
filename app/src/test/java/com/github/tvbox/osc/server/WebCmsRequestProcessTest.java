@@ -17,6 +17,17 @@ import okhttp3.HttpUrl;
 
 public class WebCmsRequestProcessTest {
     @Test
+    public void gazeProgressPageIsStillAValidationPage() {
+        assertTrue(Cz4kBrowserSession.isChallengeText("正在验证...16%"));
+        assertTrue(Cz4kBrowserSession.isValidationPage(
+                "访问验证", "正在验证...16%", "https://gaze.red/filter?search=庆余年",
+                true, "working"));
+        assertFalse(Cz4kBrowserSession.isValidationPage(
+                "庆余年 搜索结果", "庆余年第二季", "https://gaze.red/filter?search=庆余年",
+                false, ""));
+    }
+
+    @Test
     public void onlySearchAndDetailRequestsReachWebSite() {
         Map<String, String> search = new HashMap<>();
         search.put("wd", "沉默的荣耀");
