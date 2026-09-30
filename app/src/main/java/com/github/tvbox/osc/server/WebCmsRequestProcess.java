@@ -591,15 +591,21 @@ final class WebCmsRequestProcess implements RequestProcess {
         if (isBlockedPage(document)) return result;
         if (!"zanpian".equals(profile) && !hasSearchEvidence(document, keyword)) return result;
         Elements candidates = searchCandidates(document, profile, keyword);
+        int detailCandidates = 0;
+        int namedCandidates = 0;
+        int keywordMatches = 0;
         for (Element link : candidates) {
             String href = link.attr("href").trim();
             String id = detailId(document, href, profile);
             if (id.isEmpty()) continue;
+            detailCandidates++;
             Element card = findCard(link);
-            String name = cardName(link, card);
+            String name = cardName(link, card, profile, keyword);
             if (name.isEmpty()) continue;
+            namedCandidates++;
             String context = card == null ? textOf(link) : textOf(card);
             if (!containsSearchKeyword(name, context, keyword)) continue;
+            keywordMatches++;
             if (!seen.add(id)) continue;
             JsonObject vod = new JsonObject();
             vod.addProperty("vod_id", id);
@@ -611,6 +617,11 @@ final class WebCmsRequestProcess implements RequestProcess {
             vod.addProperty("vod_play_url", "");
             result.add(vod);
             if (result.size() >= MAX_RESULTS) break;
+        }
+        if ("gaze".equals(profile)) {
+            Log.i(TAG, "gaze-parse candidates=" + candidates.size()
+                    + " details=" + detailCandidates + " named=" + namedCandidates
+                    + " keywordMatches=" + keywordMatches + " results=" + result.size());
         }
         return result;
     }
@@ -1114,7 +1125,7 @@ final class WebCmsRequestProcess implements RequestProcess {
         return link;
     }
 
-    private String cardName(Element link, Element card) {
+    private String cardName(Element link, Element card, String profile, String keyword) {
         String name = attrOrText(link, "title");
         if (!name.isEmpty()) return name;
         Element image = link.selectFirst("img[alt]");
@@ -1131,7 +1142,39 @@ final class WebCmsRequestProcess implements RequestProcess {
             if (name.isEmpty()) name = textOf(title);
             if (!name.isEmpty()) return name;
         }
+        if ("gaze".equals(profile)) {
+            name = gazeCardTitle(link, keyword);
+            if (!name.isEmpty()) return name;
+        }
         return textOf(link);
+    }
+
+    /**
+     * Gaze result cards can place a poster link and its title in sibling elements.
+     * Walk only nearby, reasonably small containers so a page-level heading or a
+     * neighboring recommendation cannot become this result's title.
+     */
+    private String gazeCardTitle(Element link, String keyword) {
+        Element current = link == null ? null : link.parent();
+        for (int depth = 0; current != null && depth < 6; depth++, current = current.parent()) {
+            String containerText = textOf(current);
+            if (containerText.length() > 320
+                    || !containsSearchKeyword("", containerText, keyword)) {
+                continue;
+            }
+            for (Element title : current.select(
+                    "h1, h2, h3, h4, h5, [title], [class*=title], [class*=name]")) {
+                String candidate = attrOrText(title, "title");
+                if (candidate.isEmpty()) candidate = textOf(title);
+                if (!candidate.isEmpty()
+                        && containsSearchKeyword(candidate, "", keyword)) {
+                    return candidate;
+                }
+            }
+            String linkText = textOf(link);
+            if (containsSearchKeyword(linkText, "", keyword)) return linkText;
+        }
+        return "";
     }
 
     private String attrOrText(Element element, String attr) {

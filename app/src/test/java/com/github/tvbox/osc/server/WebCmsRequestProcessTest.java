@@ -97,6 +97,26 @@ public class WebCmsRequestProcessTest {
     }
 
     @Test
+    public void gazeFindsTitleNextToPosterLinkInUnrecognizedCardMarkup() {
+        WebCmsRequestProcess process = new WebCmsRequestProcess();
+        JsonArray results = process.parseCards(Jsoup.parse(
+                "<html><head><title>庆余年 搜索结果</title></head><body>"
+                        + "<div class='result-tile'>"
+                        + "<a href='/play/2977b706dd8839b66805c7ce55cb07a5'>"
+                        + "<img src='/poster.jpg' alt=''></a>"
+                        + "<div class='caption'><h3>庆余年 第二季</h3></div>"
+                        + "</div></body></html>",
+                "https://gaze.red/filter?search=%E5%BA%86%E4%BD%99%E5%B9%B4"),
+                "gaze", "庆余年");
+
+        assertEquals(1, results.size());
+        assertEquals("庆余年 第二季",
+                results.get(0).getAsJsonObject().get("vod_name").getAsString());
+        assertEquals("/play/2977b706dd8839b66805c7ce55cb07a5",
+                results.get(0).getAsJsonObject().get("vod_id").getAsString());
+    }
+
+    @Test
     public void parsesCz4kSearchResultsAndDetailPlaybackPages() {
         WebCmsRequestProcess process = new WebCmsRequestProcess();
         JsonArray results = process.parseCards(Jsoup.parse(
