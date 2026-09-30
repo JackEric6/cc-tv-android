@@ -906,9 +906,9 @@ public class SourceViewModel extends ViewModel {
             return;
         }
         if (requiresBrowserSession(sourceKey)
-                && !Cz4kBrowserSession.isReadyForUrl(browserLandingUrl(sourceKey))) {
+                && !Cz4kBrowserSession.isReadyForUrl(browserLandingUrl())) {
             ensureBrowserSession(
-                    browserLandingUrl(sourceKey),
+                    browserLandingUrl(),
                     () -> getDetail(detailSourceKey, id, fallback));
             return;
         }
@@ -1062,9 +1062,9 @@ public class SourceViewModel extends ViewModel {
             return;
         }
         if (requiresBrowserSession(sourceKey)
-                && !Cz4kBrowserSession.isReadyForUrl(browserSearchUrl(sourceKey, wd))) {
+                && !Cz4kBrowserSession.isReadyForUrl(browserSearchUrl(wd))) {
             ensureBrowserSession(
-                    browserSearchUrl(sourceKey, wd),
+                    browserSearchUrl(wd),
                     () -> getSearch(sourceKey, wd, searchToken, result, requestTag));
             return;
         }
@@ -1213,27 +1213,19 @@ public class SourceViewModel extends ViewModel {
             } catch (Throwable ignored) {
                 // Application startup or an external caller may not have an Activity yet.
             }
-            if (url != null && url.toLowerCase(java.util.Locale.ROOT).contains("gaze.red")) {
-                Cz4kBrowserSession.ensureVisible(activity, url, retry);
-            } else {
-                Cz4kBrowserSession.ensureReady(activity, url, retry);
-            }
+            Cz4kBrowserSession.ensureReady(activity, url, retry);
         });
     }
 
     private boolean requiresBrowserSession(String sourceKey) {
-        return "cz4k".equalsIgnoreCase(sourceKey) || "gaze".equalsIgnoreCase(sourceKey);
+        return "cz4k".equalsIgnoreCase(sourceKey);
     }
 
-    private String browserLandingUrl(String sourceKey) {
-        return "gaze".equalsIgnoreCase(sourceKey)
-                ? "https://gaze.red/" : "https://www.cz4k.com/";
+    private String browserLandingUrl() {
+        return "https://www.cz4k.com/";
     }
 
-    private String browserSearchUrl(String sourceKey, String keyword) {
-        if ("gaze".equalsIgnoreCase(sourceKey)) {
-            return "https://gaze.red/filter?search=" + encodeCz4kQuery(keyword);
-        }
+    private String browserSearchUrl(String keyword) {
         return "https://www.cz4k.com/nimasile?q=" + encodeCz4kQuery(keyword);
     }
 

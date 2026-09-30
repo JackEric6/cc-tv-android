@@ -94,6 +94,9 @@ final class CmsRequestProcess implements RequestProcess {
             "cj.ffzyapi.com",
             "cj.lziapi.com",
             "suoniapi.com",
+            "haiwaikan.com",
+            "api.kuaifan.tv",
+            "leshiapi.com",
             "www.hongniuzy2.com",
             "api.wujinapi.me",
             "jszyapi.com",
@@ -928,6 +931,15 @@ final class CmsRequestProcess implements RequestProcess {
             } else if ("cj.lziapi.com".equals(host)) {
                 addCandidate(candidates, replacePath(url, "/api.php/provide/vod/"));
                 addCandidate(candidates, replacePath(url, "/api.php/provide/vod/from/lzyun/"));
+            } else if ("cj.ffzyapi.com".equals(host)) {
+                addCandidate(candidates, replacePath(url, "/api.php/provide/vod/"));
+                addCandidate(candidates, replacePath(url, "/api.php/provide/vod/from/ffm3u8/"));
+            } else if ("haiwaikan.com".equals(host)) {
+                addCandidate(candidates, replacePath(url, "/api.php/provide/vod/from"));
+                addCandidate(candidates, replacePath(url, "/api.php/provide/vod"));
+            } else if ("suoniapi.com".equals(host)) {
+                addCandidate(candidates, replacePath(url, "/api.php/provide/vod/"));
+                addCandidate(candidates, replacePath(url, "/api.php/provide/vod/at/xml/"));
             } else if ("cj.rycjapi.com".equals(host)) {
                 addCandidate(candidates, replacePath(url, "/api.php/provide/vod/from/rym3u8/"));
                 addCandidate(candidates, replacePath(url, "/api.php/provide/vod/from/ryyun/"));
@@ -1010,7 +1022,8 @@ final class CmsRequestProcess implements RequestProcess {
     private boolean isCmsXmlHost(String source) {
         try {
             String host = HttpUrl.get(source).host().toLowerCase(Locale.ROOT);
-            return "api.yzzy-api.com".equals(host) || "m766.com".equals(host);
+            return "api.yzzy-api.com".equals(host) || "m766.com".equals(host)
+                    || "suoniapi.com".equals(host);
         } catch (Throwable ignored) {
             return false;
         }
@@ -1136,8 +1149,12 @@ final class CmsRequestProcess implements RequestProcess {
     private String referer(String source) {
         String host = HttpUrl.get(source).host().toLowerCase(Locale.ROOT);
         if (host.equals("api.ffzyapi.com")) return "https://ffzy5.tv/";
+        if (host.equals("cj.ffzyapi.com")) return "https://ffzy5.tv/";
         if (host.equals("cj.lziapi.com")) return "https://lzizy.net/";
         if (host.equals("suoniapi.com")) return "https://suonizy.net/";
+        if (host.equals("haiwaikan.com")) return "https://haiwaikan.com/";
+        if (host.equals("api.kuaifan.tv")) return "https://kuaifan.tv/";
+        if (host.equals("leshiapi.com")) return "https://leshiapi.com/";
         if (host.equals("www.hongniuzy2.com")) return "https://hongniuzy.com/";
         if (host.equals("api.wujinapi.me")) return "https://wujinzy.com/";
         if (host.equals("jszyapi.com")) return "https://jisuzy1.com/";
@@ -1184,7 +1201,7 @@ final class CmsRequestProcess implements RequestProcess {
         return result.append('/').toString();
     }
 
-    private boolean isAllowedSource(String source) {
+    boolean isAllowedSource(String source) {
         if (TextUtils.isEmpty(source)) return false;
         try {
             return ALLOWED_HOSTS.contains(HttpUrl.get(source).host().toLowerCase(Locale.ROOT));

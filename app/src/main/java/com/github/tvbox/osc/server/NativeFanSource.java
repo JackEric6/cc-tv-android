@@ -12,6 +12,7 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.nodes.Entities;
+import org.jsoup.select.Elements;
 import org.json.JSONObject;
 
 import java.io.IOException;
@@ -39,7 +40,7 @@ import okhttp3.Request;
 import okhttp3.Response;
 
 /**
- * spider2.jar 中七个源的原生适配层。
+ * 历史受保护源的本地适配层。
  *
  * <p>这里故意只输出 TVBox 标准 JSON/播放结果，调用方不需要知道源站的页面模板、
  * Android 代理地址或历史 Spider 实现。厂长由用户自己的实现接管，不在本类中处理。</p>
@@ -59,6 +60,13 @@ public final class NativeFanSource {
     private static final String JUQUAN = "https://app.95112475.xyz";
     private static final String JUQUAN_KEY = "5a9w6x58dsq6z3a6";
     private static final String CHEESE_API = "http://caiji.dyttzyapi.com/api.php/provide/vod/from/dyttm3u8/at/m3u8/";
+    private static final String GUANGYING = "https://ggys.me";
+    private static final String LIBVIO_ENTRY = "https://libvio.app";
+    private static final String[] LIBVIO_BASES = {
+            "https://libvio.app", "https://www.libvio.app", "https://www.libvio.fun",
+            "https://tv.libvio.cc", "https://libvio.cc", "https://libvio.mov"
+    };
+    private static volatile String libvioHost = "";
     private static final Pattern M3U8 = Pattern.compile("https?://[^\\\"'<>\\s]+(?:m3u8|mp4)(?:\\?[^\\\"'<>\\s]*)?", Pattern.CASE_INSENSITIVE);
     private static final Pattern NBY = Pattern.compile("NBY-[A-Za-z0-9_+./=-]+(?:\\|[A-Za-z0-9_+./=-]+)?");
 
@@ -85,13 +93,20 @@ public final class NativeFanSource {
                 || "AppSx".equalsIgnoreCase(value) || "csp_AppSxGuard".equalsIgnoreCase(value)) return "fan_juquan";
         if ("fan_jianpian".equalsIgnoreCase(value) || "荐片".equals(value)
                 || "JPJ".equalsIgnoreCase(value) || "csp_JPJGuard".equalsIgnoreCase(value)) return "fan_jianpian";
+        if ("fan_guangying".equalsIgnoreCase(value) || "光影".equals(value)
+                || "高光".equals(value) || "高光影视".equals(value)
+                || "csp_T4Guard".equalsIgnoreCase(value)) return "fan_guangying";
+        if ("fan_libbo".equalsIgnoreCase(value) || "立播".equals(value)
+                || "立波".equals(value) || "Libvio".equalsIgnoreCase(value)
+                || "csp_LibvioGuard".equalsIgnoreCase(value)) return "fan_libbo";
         return value;
     }
 
     public static boolean isSupported(String key) {
         String normalized = normalizeKey(key);
         return "fan_nomi".equals(normalized) || "fan_moli".equals(normalized)
-                || "fan_cheese".equals(normalized) || "fan_jianpian".equals(normalized);
+                || "fan_cheese".equals(normalized) || "fan_jianpian".equals(normalized)
+                || "fan_guangying".equals(normalized) || "fan_libbo".equals(normalized);
     }
 
     public static String home(String key) throws Exception {
@@ -103,6 +118,8 @@ public final class NativeFanSource {
         if ("fan_cheese".equals(key)) return cheeseHome();
         if ("fan_juquan".equals(key)) return juquanHome();
         if ("fan_jianpian".equals(key)) return jianpianHome();
+        if ("fan_guangying".equals(key)) return guangyingHome();
+        if ("fan_libbo".equals(key)) return libvioHome();
         return emptyPage().toString();
     }
 
@@ -124,6 +141,8 @@ public final class NativeFanSource {
         if ("fan_moli".equals(key)) return genericCmsPage(MOLI, id, page);
         if ("fan_cheese".equals(key)) return cheesePage(id, page);
         if ("fan_jianpian".equals(key)) return jianpianCategory(id, page);
+        if ("fan_guangying".equals(key)) return guangyingCategory(id, page, filters);
+        if ("fan_libbo".equals(key)) return libvioCategory(id, page, filters);
         return emptyPage().toString();
     }
 
@@ -137,6 +156,8 @@ public final class NativeFanSource {
         if ("fan_moli".equals(key)) return genericCmsSearch(MOLI, keyword);
         if ("fan_cheese".equals(key)) return cheeseSearch(keyword);
         if ("fan_jianpian".equals(key)) return jianpianSearch(keyword);
+        if ("fan_guangying".equals(key)) return guangyingSearch(keyword);
+        if ("fan_libbo".equals(key)) return libvioSearch(keyword);
         return emptyPage().toString();
     }
 
@@ -149,6 +170,8 @@ public final class NativeFanSource {
         if ("fan_moli".equals(key)) return genericCmsDetail(MOLI, id);
         if ("fan_cheese".equals(key)) return cheeseDetail(id);
         if ("fan_jianpian".equals(key)) return jianpianDetail(id);
+        if ("fan_guangying".equals(key)) return guangyingDetail(id);
+        if ("fan_libbo".equals(key)) return libvioDetail(id);
         return emptyPage().toString();
     }
 
@@ -180,6 +203,10 @@ public final class NativeFanSource {
                 result.put("url", url);
                 return result;
             }
+        } else if ("fan_guangying".equals(key)) {
+            url = guangyingPlayUrl(url);
+        } else if ("fan_libbo".equals(key)) {
+            url = libvioPlayUrl(url);
         }
 
         if (TextUtils.isEmpty(url)) throw new IOException("播放地址为空");
@@ -572,6 +599,343 @@ public final class NativeFanSource {
     private static String genericCmsDetail(String host, String id) throws Exception {
         JsonObject response = requestJson(host + "/api.php/provide/vod?ac=detail&ids=" + encode(id), Collections.<String, String>emptyMap());
         return normalizeApiPage(response, 1).toString();
+    }
+
+    /** 光影网页协议的本地实现。页面协议来自公开网页端点，不依赖 T4Guard 或任何动态库。 */
+    private static String guangyingHome() throws Exception {
+        JsonObject root = new JsonObject();
+        addClass(root, "movies", "电影");
+        addClass(root, "tv-shows", "剧集");
+        try {
+            JsonObject page = JsonParser.parseString(guangyingCategory("movies", 1,
+                    Collections.<String, String>emptyMap())).getAsJsonObject();
+            if (page.has("list")) root.add("list", page.get("list"));
+        } catch (Throwable ignored) {
+            root.add("list", new JsonArray());
+        }
+        return root.toString();
+    }
+
+    private static String guangyingCategory(String id, int pageNumber, Map<String, String> filters) throws Exception {
+        String prefix = "tv-shows".equalsIgnoreCase(id) ? "tv-show" : "movie";
+        String path = "/" + prefix;
+        String category = value(filters, "class", "");
+        if (!category.isEmpty()) path += "-" + category;
+        if (pageNumber > 1) path += "/page/" + Math.max(1, pageNumber) + "/";
+        JsonArray list = guangyingCards(fetchDocumentWithReferer(GUANGYING + path, GUANGYING + "/"), prefix);
+        return page(list, Math.max(1, pageNumber), list.size() == 0 ? 1 : Math.max(1, pageNumber + 1), list.size()).toString();
+    }
+
+    private static String guangyingSearch(String keyword) throws Exception {
+        JsonArray list = new JsonArray();
+        for (String type : new String[]{"movie", "tv_show"}) {
+            String url = GUANGYING + "/search/" + encode(keyword) + "?post_type=" + type;
+            try {
+                for (JsonElement item : guangyingCards(fetchDocumentWithReferer(url, GUANGYING + "/"),
+                        "movie".equals(type) ? "movie" : "tv-show")) list.add(item);
+            } catch (Throwable ignored) {
+                // 单个内容类型被站点限制时保留另一类结果。
+            }
+        }
+        return page(list, 1, 1, list.size()).toString();
+    }
+
+    private static String guangyingDetail(String id) throws Exception {
+        String detailUrl = guangyingUrl(id);
+        Document document = fetchDocumentWithReferer(detailUrl, GUANGYING + "/");
+        String prefix = id != null && id.startsWith("movie") ? "movie" : "tv-show";
+        JsonObject item = vod(id, firstNonEmpty(
+                text(document, "." + prefix + "_title"), document.title()),
+                firstNonEmpty(attr(document, "." + prefix + "__poster img", "data-lazy-src"),
+                        attr(document, "." + prefix + "__poster img", "src")),
+                firstNonEmpty(text(document, ".movie__description"), text(document, ".tv-show__info--body")));
+        item.addProperty("vod_actor", text(document, "." + prefix + "-casts"));
+        item.addProperty("vod_remarks", lastText(document, "." + prefix + "__meta span"));
+
+        JsonArray episodes = new JsonArray();
+        if ("movie".equals(prefix)) {
+            String sourceId = attr(document, ".ggys-video-player", "data-source-id");
+            if (!sourceId.isEmpty()) episodes.add("全$" + sourceId + "@movie");
+        } else {
+            for (Element link : document.select(".episodes a[href]")) {
+                String title = link.text().trim();
+                String href = resolve(GUANGYING, link.attr("href"));
+                if (!href.isEmpty()) episodes.add((title.isEmpty() ? String.valueOf(episodes.size() + 1) : title)
+                        + "$" + href + "@tv-show");
+            }
+        }
+        if (episodes.size() == 0) episodes.add("播放$" + detailUrl + "@" + prefix);
+        item.addProperty("vod_play_from", "光影");
+        item.addProperty("vod_play_url", joinJson(episodes));
+        JsonArray list = new JsonArray();
+        list.add(item);
+        return page(list, 1, 1, 1).toString();
+    }
+
+    private static String guangyingPlayUrl(String raw) throws Exception {
+        String value = raw == null ? "" : raw.trim();
+        String[] parts = value.split("@", 2);
+        String playId = parts.length > 0 ? parts[0] : value;
+        String type = parts.length > 1 ? parts[1] : "movie";
+        if ("tv-show".equals(type) && !playId.isEmpty() && !isMedia(playId)) {
+            Document page = fetchDocumentWithReferer(playId, GUANGYING + "/");
+            playId = attr(page, ".ggys-video-player", "data-source-id");
+        }
+        if (playId.isEmpty()) throw new IOException("光影播放编号为空");
+        JsonObject response = postJson(GUANGYING + "/wp-json/get_addr/v1/get_video_url",
+                mapOf("video_id", playId),
+                mapOf("Referer", GUANGYING + "/", "Accept", "application/json,text/plain,*/*"));
+        String media = value(response, "video_url", "url", "play_url");
+        if (media.isEmpty()) {
+            JsonObject nested = findObjectDeep(response, "data", "result");
+            media = value(nested, "video_url", "url", "play_url");
+        }
+        if (media.isEmpty()) throw new IOException("光影没有返回播放地址");
+        return media;
+    }
+
+    private static JsonArray guangyingCards(Document document, String prefix) {
+        JsonArray list = new JsonArray();
+        if (document == null) return list;
+        for (Element card : document.select("." + prefix)) {
+            Element link = card.selectFirst("." + prefix + "__actions a[href]");
+            if (link == null) continue;
+            String id = guangyingId(link.attr("href"));
+            if (id.isEmpty() || containsId(list, id)) continue;
+            String name = firstNonEmpty(text(card, "." + prefix + "__title"), link.attr("title"), link.text());
+            String image = firstNonEmpty(attr(card, "." + prefix + "__poster img", "data-lazy-src"),
+                    attr(card, "." + prefix + "__poster img", "src"));
+            list.add(vod(id, name, image, lastText(card, "." + prefix + "__meta span")));
+        }
+        return list;
+    }
+
+    private static String guangyingId(String href) {
+        if (TextUtils.isEmpty(href)) return "";
+        try {
+            HttpUrl url = HttpUrl.get(href.startsWith("http") ? href : resolve(GUANGYING, href));
+            String path = url.encodedPath().replaceAll("^/+|/+$", "");
+            return path;
+        } catch (Throwable ignored) {
+            return href.replaceAll("^/+|/+$", "");
+        }
+    }
+
+    /** 立播 Libvio 的本地 HTML/API 适配。动态入口只用于寻找当前站点域名，不加载 JS/JAR。 */
+    private static String libvioHome() throws Exception {
+        String host = ensureLibvioHost();
+        JsonObject root = new JsonObject();
+        Document document = fetchDocumentWithReferer(host, host + "/");
+        JsonArray classes = libvioClasses(document);
+        root.add("class", classes);
+        try {
+            JsonArray list = libvioCards(fetchDocumentWithReferer(host + "/show/1--hits---------.html", host + "/"));
+            root.add("list", list);
+        } catch (Throwable ignored) {
+            root.add("list", new JsonArray());
+        }
+        return root.toString();
+    }
+
+    private static String libvioCategory(String id, int pageNumber, Map<String, String> filters) throws Exception {
+        String host = ensureLibvioHost();
+        String area = encode(value(filters, "area", ""));
+        String by = encode(value(filters, "by", "time"));
+        String lang = encode(value(filters, "lang", ""));
+        String year = encode(value(filters, "year", ""));
+        String url = host + "/show/" + (TextUtils.isEmpty(id) ? "1" : id) + "-" + area + "-" + by
+                + "--" + lang + "----" + Math.max(1, pageNumber) + "---" + year + ".html";
+        Document document = fetchDocumentWithReferer(url, host + "/");
+        JsonArray list = libvioCards(document);
+        boolean hasNext = !document.select("ul.stui-page__item > li > a:contains(下一页)").isEmpty();
+        return page(list, Math.max(1, pageNumber), hasNext ? pageNumber + 1 : pageNumber,
+                list.size() * (hasNext ? pageNumber + 1 : pageNumber)).toString();
+    }
+
+    private static String libvioSearch(String keyword) throws Exception {
+        String host = ensureLibvioHost();
+        String url = host + "/index.php/ajax/suggest?mid=1&wd=" + encode(keyword) + "&limit=50";
+        JsonObject response = requestJson(url, Collections.<String, String>emptyMap());
+        JsonArray raw = array(response, "list", "data", "results");
+        JsonArray list = new JsonArray();
+        for (JsonElement element : raw) {
+            if (!element.isJsonObject()) continue;
+            JsonObject item = element.getAsJsonObject();
+            String id = value(item, "id", "vod_id");
+            if (id.isEmpty()) continue;
+            list.add(vod(id, value(item, "name", "title", "vod_name"),
+                    value(item, "pic", "vod_pic", "image"), value(item, "remarks", "vod_remarks")));
+        }
+        return page(list, 1, 1, list.size()).toString();
+    }
+
+    private static String libvioDetail(String id) throws Exception {
+        String host = ensureLibvioHost();
+        String detailUrl = id != null && id.startsWith("http") ? id : host + "/detail/" + id + ".html";
+        Document document = fetchDocumentWithReferer(detailUrl, host + "/");
+        JsonObject item = vod(id, firstNonEmpty(text(document, "h1"), document.title()),
+                firstNonEmpty(attr(document, ".stui-content__thumb img", "data-original"),
+                        attr(document, ".stui-content__thumb img", "src")),
+                firstNonEmpty(text(document, ".detail-content"), text(document, ".detail")));
+        item.addProperty("vod_remarks", lastText(document, ".stui-content__detail p"));
+        LinkedHashMap<String, LinkedHashMap<String, String>> lines = new LinkedHashMap<>();
+        Elements heads = document.select("div.stui-pannel__head > h3[class*=iconfont]");
+        Elements playlists = document.select("ul.stui-content__playlist");
+        for (int i = 0; i < playlists.size(); i++) {
+            String line = i < heads.size() ? heads.get(i).text().trim() : "线路" + (i + 1);
+            LinkedHashMap<String, String> episodes = new LinkedHashMap<>();
+            for (Element link : playlists.get(i).select("a[href]")) {
+                String href = resolve(host, link.attr("href"));
+                if (!href.isEmpty()) episodes.put(href, firstNonEmpty(link.text(), String.valueOf(episodes.size() + 1)) + "$" + href);
+            }
+            if (!episodes.isEmpty()) lines.put(line, episodes);
+        }
+        if (lines.isEmpty()) {
+            LinkedHashMap<String, String> episodes = new LinkedHashMap<>();
+            for (Element link : document.select("a[href*='/play/'],a[href*='/vodplay/']")) {
+                String href = resolve(host, link.attr("href"));
+                if (!href.isEmpty()) episodes.put(href, firstNonEmpty(link.text(), "播放") + "$" + href);
+            }
+            if (!episodes.isEmpty()) lines.put("立播", episodes);
+        }
+        item.addProperty("vod_play_from", join(new ArrayList<>(lines.keySet()), "$$$"));
+        ArrayList<String> groups = new ArrayList<>();
+        for (LinkedHashMap<String, String> line : lines.values()) groups.add(join(new ArrayList<>(line.values()), "#"));
+        item.addProperty("vod_play_url", join(groups, "$$$"));
+        JsonArray list = new JsonArray();
+        list.add(item);
+        return page(list, 1, 1, 1).toString();
+    }
+
+    private static String libvioPlayUrl(String raw) throws Exception {
+        String value = raw == null ? "" : raw.trim();
+        if (isMedia(value)) return value;
+        String host = ensureLibvioHost();
+        String episodeUrl = value.startsWith("http") ? value : resolve(host, value);
+        String html = requestText(episodeUrl, mapOf("Referer", host + "/"));
+        Matcher player = Pattern.compile("(?is)r\\s+player_[^=]*=\\s*(\\{.*?\\})\\s*<").matcher(html);
+        if (!player.find()) throw new IOException("立播播放页没有播放器数据");
+        JsonObject config = JsonParser.parseString(player.group(1)).getAsJsonObject();
+        String media = value(config, "url", "play_url");
+        if (isMedia(media)) return media;
+        if (media.contains("aliyundrive.com") || media.contains("alipan.com") || media.contains("quark.cn")) return media;
+        String from = value(config, "from");
+        if (from.isEmpty()) throw new IOException("立播播放线路为空");
+        String next = value(config, "link_next");
+        String episodeId = value(config, "id");
+        String nid = value(config, "nid");
+        Throwable last = null;
+        for (String base : new String[]{host, "https://libvio.cc", "https://www.libvio.app"}) {
+            try {
+                String playerJs = requestText(base + "/static/player/" + from + ".js", mapOf("Referer", host + "/"));
+                Matcher src = Pattern.compile("(?is)src\\s*=\\s*[\\\"']([^\\\"']+)").matcher(playerJs);
+                if (!src.find()) continue;
+                String callback = resolve(base, src.group(1)) + media + "&next=" + encode(next)
+                        + "&id=" + encode(episodeId) + "&nid=" + encode(nid);
+                String payload = requestText(callback, mapOf("Referer", host + "/"));
+                Matcher result = Pattern.compile("(?is)var\\s+[^=]+\\s*=\\s*[\\\"']([^\\\"']+)").matcher(payload);
+                if (result.find()) return result.group(1);
+                String direct = findFirst(M3U8, payload);
+                if (!direct.isEmpty()) return direct;
+            } catch (Throwable throwable) {
+                last = throwable;
+            }
+        }
+        throw new IOException("立播播放页未解析出媒体地址", last);
+    }
+
+    private static JsonArray libvioClasses(Document document) {
+        JsonArray classes = new JsonArray();
+        if (document == null) return classes;
+        for (Element link : document.select("ul.stui-header__menu > li > a[href*=type]")) {
+            String href = link.attr("href");
+            String id = href.substring(Math.max(0, href.lastIndexOf('/') + 1)).replace(".html", "");
+            if (id.isEmpty()) continue;
+            addClass(classes, id, link.text().trim());
+        }
+        return classes;
+    }
+
+    private static JsonArray libvioCards(Document document) {
+        JsonArray list = new JsonArray();
+        if (document == null) return list;
+        for (Element card : document.select("ul.stui-vodlist > li")) {
+            Element link = card.selectFirst("a[href]");
+            if (link == null) continue;
+            String href = link.attr("href");
+            String id = href.replaceAll("^.*?/detail/", "").replaceAll("\\.html.*$", "");
+            if (id.isEmpty() || containsId(list, id)) continue;
+            String name = firstNonEmpty(link.attr("title"), link.text(), text(card, "h4,h3,.title"));
+            String image = firstNonEmpty(attr(card, "img", "data-original"), attr(card, "img", "src"));
+            list.add(vod(id, name, image, firstNonEmpty(text(card, ".pic-text"), text(card, ".text-muted"))));
+        }
+        return list;
+    }
+
+    private static String ensureLibvioHost() throws Exception {
+        String cached = libvioHost;
+        if (!cached.isEmpty()) return cached;
+        Throwable last = null;
+        for (String base : LIBVIO_BASES) {
+            try {
+                Document document = fetchDocumentWithReferer(base, base + "/");
+                Element link = document.selectFirst("div.content-top > ul > li a[href]");
+                String candidate = link == null ? base : resolve(base, link.attr("href"));
+                if (!candidate.isEmpty()) {
+                    libvioHost = candidate.replaceAll("/+$", "");
+                    return libvioHost;
+                }
+            } catch (Throwable throwable) {
+                last = throwable;
+            }
+        }
+        throw new IOException("立播入口不可用", last);
+    }
+
+    private static String guangyingUrl(String id) {
+        if (id == null || id.isEmpty()) return GUANGYING + "/";
+        return id.startsWith("http") ? id : resolve(GUANGYING, "/" + id + "/");
+    }
+
+    private static Document fetchDocumentWithReferer(String url, String referer) throws Exception {
+        return Jsoup.parse(requestText(url, mapOf("Referer", referer)), url);
+    }
+
+    private static String text(Element element, String selector) {
+        if (element == null || selector == null) return "";
+        Element found = element.selectFirst(selector);
+        return found == null ? "" : found.text().trim();
+    }
+
+    private static String text(Document document, String selector) {
+        return text((Element) document, selector);
+    }
+
+    private static String attr(Element element, String selector, String attribute) {
+        if (element == null || selector == null) return "";
+        Element found = element.selectFirst(selector);
+        return found == null ? "" : found.attr(attribute).trim();
+    }
+
+    private static String attr(Document document, String selector, String attribute) {
+        return attr((Element) document, selector, attribute);
+    }
+
+    private static String lastText(Element element, String selector) {
+        if (element == null) return "";
+        Elements elements = element.select(selector);
+        return elements.isEmpty() ? "" : elements.last().text().trim();
+    }
+
+    private static String lastText(Document document, String selector) {
+        return lastText((Element) document, selector);
+    }
+
+    private static void addClass(JsonArray classes, String id, String name) {
+        JsonObject item = new JsonObject();
+        item.addProperty("type_id", id == null ? "" : id);
+        item.addProperty("type_name", name == null ? "" : name);
+        classes.add(item);
     }
 
     private static JSONObject resolveNbyResult(String value) throws Exception {

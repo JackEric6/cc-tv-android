@@ -74,9 +74,7 @@ final class WebCmsRequestProcess implements RequestProcess {
             "www.zanpian.org",
             "www.88ystv.com",
             "cz4k.com",
-            "www.cz4k.com",
-            "gaze.red",
-            "www.gaze.red"
+            "www.cz4k.com"
     ));
     private static final OkHttpClient CLIENT = new OkHttpClient.Builder()
             .dns(Dns.SYSTEM)
@@ -166,9 +164,7 @@ final class WebCmsRequestProcess implements RequestProcess {
         List<SearchRequest> requests = new ArrayList<>();
         boolean searchDisabled = false;
         boolean searchBlocked = false;
-        boolean discoverAfterKnownRoutes = "zanpian".equals(profile)
-                || "cz4k".equals(profile)
-                || "gaze".equals(profile);
+        boolean discoverAfterKnownRoutes = "zanpian".equals(profile) || "cz4k".equals(profile);
         if (!discoverAfterKnownRoutes) {
             try {
                 requests.addAll(discoverSearchRequests(source, keyword, currentPage, profile));
@@ -383,10 +379,6 @@ final class WebCmsRequestProcess implements RequestProcess {
             String path = "/nimasile?q=" + encoded;
             if (currentPage > 1) path += "&page=" + currentPage;
             requests.add(getSearchRequest(path));
-        } else if ("gaze".equals(profile)) {
-            String path = "/filter?search=" + encoded;
-            if (currentPage > 1) path += "&page=" + currentPage;
-            requests.add(getSearchRequest(path));
         } else {
             requests.add(getSearchRequest(buildPath(
                     "/vodsearch/-------------.html", "wd", keyword,
@@ -433,11 +425,6 @@ final class WebCmsRequestProcess implements RequestProcess {
                 episodes.put(direct, "正片$" + direct);
                 playbackLines.put("1", episodes);
             }
-        }
-        if (playbackLines.isEmpty() && "gaze".equals(profile)) {
-            LinkedHashMap<String, String> episodes = new LinkedHashMap<>();
-            episodes.put(detailUrl, "正片$" + detailUrl);
-            playbackLines.put("1", episodes);
         }
         StringBuilder playFrom = new StringBuilder();
         StringBuilder playUrls = new StringBuilder();
@@ -591,21 +578,15 @@ final class WebCmsRequestProcess implements RequestProcess {
         if (isBlockedPage(document)) return result;
         if (!"zanpian".equals(profile) && !hasSearchEvidence(document, keyword)) return result;
         Elements candidates = searchCandidates(document, profile, keyword);
-        int detailCandidates = 0;
-        int namedCandidates = 0;
-        int keywordMatches = 0;
         for (Element link : candidates) {
             String href = link.attr("href").trim();
             String id = detailId(document, href, profile);
             if (id.isEmpty()) continue;
-            detailCandidates++;
             Element card = findCard(link);
             String name = cardName(link, card, profile, keyword);
             if (name.isEmpty()) continue;
-            namedCandidates++;
             String context = card == null ? textOf(link) : textOf(card);
             if (!containsSearchKeyword(name, context, keyword)) continue;
-            keywordMatches++;
             if (!seen.add(id)) continue;
             JsonObject vod = new JsonObject();
             vod.addProperty("vod_id", id);
@@ -617,11 +598,6 @@ final class WebCmsRequestProcess implements RequestProcess {
             vod.addProperty("vod_play_url", "");
             result.add(vod);
             if (result.size() >= MAX_RESULTS) break;
-        }
-        if ("gaze".equals(profile)) {
-            Log.i(TAG, "gaze-parse candidates=" + candidates.size()
-                    + " details=" + detailCandidates + " named=" + namedCandidates
-                    + " keywordMatches=" + keywordMatches + " results=" + result.size());
         }
         return result;
     }
@@ -635,10 +611,6 @@ final class WebCmsRequestProcess implements RequestProcess {
         } else if ("zanpian".equals(profile)) {
             candidates = document.select(
                     "li a.module_play_img[href], li a.play-img[href]");
-        } else if ("gaze".equals(profile)) {
-            candidates = document.select(
-                    "a[href^=/play/], a[href*='/play/'], a[data-href*='/play/'], "
-                            + "a[href^=/detail/], a[href*='/detail/']");
         } else {
             candidates = document.select(
                     "#searchList li a[href], #searchList a[href], "
@@ -740,10 +712,6 @@ final class WebCmsRequestProcess implements RequestProcess {
                 "^/[a-z0-9_-]+/[a-z0-9_-]+/$")) {
             return true;
         }
-        if ("gaze".equals(profile) && (lower.startsWith("/play/")
-                || lower.startsWith("/detail/"))) {
-            return true;
-        }
         if (!lower.startsWith("/") || lower.startsWith("//")) return false;
         if (lower.contains("/v/") || lower.contains("/content")
                 || lower.contains("/detail") || lower.contains("/movie")
@@ -767,11 +735,6 @@ final class WebCmsRequestProcess implements RequestProcess {
             if (resolved == null || !page.host().equalsIgnoreCase(resolved.host())) return "";
             String path = resolved.encodedPath();
             boolean shortDetail = "/s".equalsIgnoreCase(path) && hasDetailQuery(resolved);
-            if ("gaze".equals(profile) && (path.startsWith("/play/")
-                    || path.startsWith("/detail/"))) {
-                return path + (resolved.encodedQuery() == null
-                        ? "" : "?" + resolved.encodedQuery());
-            }
             if ((!isDetailPage(path, profile) && !shortDetail)
                     || isPlayablePage(path, profile)) return "";
             return path + (resolved.encodedQuery() == null
@@ -888,11 +851,15 @@ final class WebCmsRequestProcess implements RequestProcess {
         if (!searchRequest.htmlInJson) return executeDocument(url, request, client);
 
         try (Response response = client.newCall(request).execute()) {
-            if (!response.isSuccessful() || response.body() == null) {
+            if (response.body() == null) {
+                throw new IOException("HTTP " + response.code());
+            }
+            String payload = response.body().string();
+            if (!response.isSuccessful()) {
                 throw new IOException("HTTP " + response.code());
             }
             Document document = parseHtmlInJson(
-                    response.body().string(), response.request().url().toString());
+                    payload, response.request().url().toString());
             if (isBlockedPage(document)) {
                 throw new IOException("站点安全验证或拦截");
             }
@@ -901,22 +868,48 @@ final class WebCmsRequestProcess implements RequestProcess {
     }
 
     static Document parseHtmlInJson(String response, String baseUri) throws IOException {
+        String body = response == null ? "" : response.trim();
+        if (body.startsWith("<")) return Jsoup.parse(body, baseUri);
         try {
-            JsonObject root = JsonParser.parseString(response).getAsJsonObject();
-            JsonElement data = root.get("data");
-            if (data == null || !data.isJsonObject()) {
-                throw new IOException("搜索响应缺少 data");
-            }
-            JsonElement html = data.getAsJsonObject().get("ajaxtxt");
-            if (html == null || !html.isJsonPrimitive()) {
-                throw new IOException("搜索响应缺少 ajaxtxt");
-            }
-            return Jsoup.parse(html.getAsString(), baseUri);
+            String html = findHtmlPayload(JsonParser.parseString(body));
+            if (html.isEmpty()) throw new IOException("搜索响应未包含 HTML 列表");
+            return Jsoup.parse(html, baseUri);
         } catch (IOException error) {
             throw error;
         } catch (Throwable error) {
             throw new IOException("搜索 JSON 响应格式无效", error);
         }
+    }
+
+    private static String findHtmlPayload(JsonElement element) {
+        if (element == null || element.isJsonNull()) return "";
+        if (element.isJsonPrimitive()) {
+            com.google.gson.JsonPrimitive primitive = element.getAsJsonPrimitive();
+            if (!primitive.isString()) return "";
+            String value = primitive.getAsString();
+            return value.contains("<") && value.contains(">") ? value : "";
+        }
+        if (element.isJsonArray()) {
+            String best = "";
+            for (JsonElement child : element.getAsJsonArray()) {
+                String candidate = findHtmlPayload(child);
+                if (candidate.length() > best.length()) best = candidate;
+            }
+            return best;
+        }
+        if (!element.isJsonObject()) return "";
+        JsonObject object = element.getAsJsonObject();
+        String[] preferredKeys = {"ajaxtxt", "html", "content", "body", "data", "result", "list"};
+        for (String key : preferredKeys) {
+            String candidate = findHtmlPayload(object.get(key));
+            if (!candidate.isEmpty()) return candidate;
+        }
+        String best = "";
+        for (Map.Entry<String, JsonElement> entry : object.entrySet()) {
+            String candidate = findHtmlPayload(entry.getValue());
+            if (candidate.length() > best.length()) best = candidate;
+        }
+        return best;
     }
 
     private Document fetchDocument(String url) throws IOException {
@@ -999,7 +992,6 @@ final class WebCmsRequestProcess implements RequestProcess {
     String profile(String source) {
         String host = HttpUrl.get(source).host().toLowerCase(Locale.ROOT);
         if (host.equals("cz4k.com") || host.equals("www.cz4k.com")) return "cz4k";
-        if (host.equals("gaze.red") || host.equals("www.gaze.red")) return "gaze";
         if (host.equals("www.zzhuilv.cn")) return "fed";
         if (host.equals("www.zanpian.org")) return "zanpian";
         return "maccms";
@@ -1018,8 +1010,7 @@ final class WebCmsRequestProcess implements RequestProcess {
     private boolean isBrowserSessionUrl(String url) {
         try {
             String host = HttpUrl.get(url).host().toLowerCase(Locale.ROOT);
-            return host.equals("cz4k.com") || host.equals("www.cz4k.com")
-                    || host.equals("gaze.red") || host.equals("www.gaze.red");
+            return host.equals("cz4k.com") || host.equals("www.cz4k.com");
         } catch (Throwable ignored) {
             return false;
         }
@@ -1126,10 +1117,6 @@ final class WebCmsRequestProcess implements RequestProcess {
     }
 
     private String cardName(Element link, Element card, String profile, String keyword) {
-        if ("gaze".equals(profile)) {
-            String gazeName = gazeCardTitle(link, keyword);
-            if (!gazeName.isEmpty()) return gazeName;
-        }
         String name = attrOrText(link, "title");
         if (!name.isEmpty()) return name;
         Element image = link.selectFirst("img[alt]");
@@ -1147,52 +1134,6 @@ final class WebCmsRequestProcess implements RequestProcess {
             if (!name.isEmpty()) return name;
         }
         return textOf(link);
-    }
-
-    /**
-     * Gaze result cards can place a poster link and its title in sibling elements.
-     * Walk only nearby, reasonably small containers so a page-level heading or a
-     * neighboring recommendation cannot become this result's title.
-     */
-    private String gazeCardTitle(Element link, String keyword) {
-        Element current = link == null ? null : link.parent();
-        for (int depth = 0; current != null && depth < 6; depth++, current = current.parent()) {
-            String containerText = textOf(current);
-            if (containerText.length() > 320
-                    || !containsSearchKeyword("", containerText, keyword)) {
-                continue;
-            }
-            for (Element title : current.select(
-                    "h1, h2, h3, h4, h5, [title], [data-title], [data-name], "
-                            + "[data-vod-name], [data-original-title], [aria-label], "
-                            + "[class*=title], [class*=name], img[alt]")) {
-                String candidate = matchingGazeLabel(title, keyword);
-                if (!candidate.isEmpty()) return candidate;
-            }
-            String imageAlt = link.select("img[alt]").stream()
-                    .map(image -> image.attr("alt").trim())
-                    .filter(candidate -> containsSearchKeyword(candidate, "", keyword))
-                    .findFirst().orElse("");
-            if (!imageAlt.isEmpty()) return imageAlt;
-            String linkTitle = attrOrText(link, "title");
-            if (containsSearchKeyword(linkTitle, "", keyword)) return linkTitle;
-            String linkText = textOf(link);
-            if (containsSearchKeyword(linkText, "", keyword)) return linkText;
-        }
-        return "";
-    }
-
-    private String matchingGazeLabel(Element element, String keyword) {
-        String[] attributes = {
-                "title", "data-title", "data-name", "data-vod-name",
-                "data-original-title", "aria-label", "alt"
-        };
-        for (String attribute : attributes) {
-            String candidate = element.attr(attribute).trim();
-            if (containsSearchKeyword(candidate, "", keyword)) return candidate;
-        }
-        String candidate = textOf(element);
-        return containsSearchKeyword(candidate, "", keyword) ? candidate : "";
     }
 
     private String attrOrText(Element element, String attr) {

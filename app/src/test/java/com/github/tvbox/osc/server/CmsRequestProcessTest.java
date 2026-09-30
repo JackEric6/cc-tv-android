@@ -112,6 +112,35 @@ public class CmsRequestProcessTest {
     }
 
     @Test
+    public void bundledQistCmsHostsAreAllowedByTheLocalAdapter() {
+        CmsRequestProcess process = new CmsRequestProcess();
+        assertTrue(process.isAllowedSource("https://api.apibdzy.com/api.php/provide/vod"));
+        assertTrue(process.isAllowedSource("https://cj.lziapi.com/api.php/provide/vod"));
+        assertTrue(process.isAllowedSource("http://cj.ffzyapi.com/api.php/provide/vod"));
+        assertTrue(process.isAllowedSource("https://haiwaikan.com/api.php/provide/vod"));
+        assertTrue(process.isAllowedSource("https://bfzyapi.com/api.php/provide/vod"));
+        assertTrue(process.isAllowedSource("https://suoniapi.com/api.php/provide/vod/at/xml/"));
+        assertTrue(process.isAllowedSource("https://api.kuaifan.tv/api.php/provide/vod"));
+        assertTrue(process.isAllowedSource("https://leshiapi.com/api.php/provide/vod"));
+    }
+
+    @Test
+    public void suoniCmsSourceKeepsJsonAndXmlFallbackCandidates() {
+        java.util.List<String> candidates = new CmsRequestProcess().sourceCandidates(
+                "https://suoniapi.com/api.php/provide/vod/at/xml/");
+        assertTrue(candidates.contains("https://suoniapi.com/api.php/provide/vod/"));
+        assertTrue(candidates.contains("https://suoniapi.com/api.php/provide/vod/at/xml/"));
+    }
+
+    @Test
+    public void haiwaikanUsesItsJsonFromRouteBeforeTheLegacyRoute() {
+        java.util.List<String> candidates = new CmsRequestProcess().sourceCandidates(
+                "https://haiwaikan.com/api.php/provide/vod/from");
+        assertEquals("https://haiwaikan.com/api.php/provide/vod/from", candidates.get(0));
+        assertTrue(candidates.contains("https://haiwaikan.com/api.php/provide/vod"));
+    }
+
+    @Test
     public void detailRequestsDoNotSynchronouslyHydrateImages() {
         assertTrue(!CmsRequestProcess.shouldHydrateImages("detail", "关键词"));
         assertTrue(!CmsRequestProcess.shouldHydrateImages("detail", ""));

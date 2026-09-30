@@ -23,6 +23,14 @@ public class NativeFanSourceTest {
     }
 
     @Test
+    public void newSourcesAreHandledByTheNativeAdapter() {
+        assertEquals("fan_guangying", NativeFanSource.normalizeKey("光影"));
+        assertEquals("fan_libbo", NativeFanSource.normalizeKey("立播"));
+        assertTrue(NativeFanSource.isSupported("fan_guangying"));
+        assertTrue(NativeFanSource.isSupported("fan_libbo"));
+    }
+
+    @Test
     public void nomiSearchTitleRemovesCategoryPrefixAndSuffix() {
         assertEquals("庆余年", NativeFanSource.cleanNomiTitle("国产剧 庆余年"));
         assertEquals("庆余年", NativeFanSource.cleanNomiTitle("庆余年-国产剧"));

@@ -101,7 +101,7 @@ public final class Cz4kBrowserSession {
     }
 
     /**
-     * 读取当前页面及站点根域的 Cookie，兼容 gaze.red/www.gaze.red 的跳转。
+     * 读取当前页面及厂长站点根域的 Cookie。
      * 调用方必须在主线程执行此方法。
      */
     public static String collectCookies(String url) {
@@ -114,10 +114,7 @@ public final class Cz4kBrowserSession {
         LinkedHashMap<String, String> cookies = new LinkedHashMap<>();
         addCookies(cookies, manager.getCookie(url));
         String host = hostOf(url);
-        if (isHost(host, "gaze.red")) {
-            addCookies(cookies, manager.getCookie("https://gaze.red/"));
-            addCookies(cookies, manager.getCookie("https://www.gaze.red/"));
-        } else if (isHost(host, "cz4k.com")) {
+        if (isHost(host, "cz4k.com")) {
             addCookies(cookies, manager.getCookie("https://cz4k.com/"));
             addCookies(cookies, manager.getCookie("https://www.cz4k.com/"));
         }
@@ -151,31 +148,6 @@ public final class Cz4kBrowserSession {
             warmupOpening = true;
         }
         MAIN.post(() -> startBackgroundWarmup(activity, url));
-    }
-
-    /**
-     * 前台打开正常 WebView，供需要用户手动完成站点验证的网页源使用。
-     * 不注入脚本、不修改验证参数，只把验证完成后的同域 Cookie 交给等待中的请求。
-     */
-    public static void ensureVisible(Activity activity, String url, Runnable ready) {
-        if (ready == null) return;
-        if (isReadyForUrl(url)) {
-            MAIN.post(ready);
-            return;
-        }
-        if (activity == null || activity.isFinishing()) {
-            markReady("");
-            return;
-        }
-        synchronized (WAITERS) {
-            WAITERS.add(ready);
-            if (warmupOpening) return;
-            warmupOpening = true;
-        }
-        sessionHost = hostOf(url);
-        openedAt = System.currentTimeMillis();
-        finished = false;
-        MAIN.post(() -> com.github.tvbox.osc.ui.activity.Cz4kBrowserActivity.open(activity, url));
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -278,11 +250,6 @@ public final class Cz4kBrowserSession {
             return;
         }
         String cookies = collectCookies(pageUrl);
-        if (isHost(sessionHost, "gaze.red") && TextUtils.isEmpty(cookies)
-                && System.currentTimeMillis() - openedAt < MAX_WAIT_MS) {
-            MAIN.postDelayed(checkPage, CHECK_DELAY_MS);
-            return;
-        }
         if (!markReady(cookies, true, pageUrl)
                 && System.currentTimeMillis() - openedAt < MAX_WAIT_MS) {
             MAIN.postDelayed(checkPage, CHECK_DELAY_MS);
@@ -304,16 +271,13 @@ public final class Cz4kBrowserSession {
     }
 
     public static boolean markReady(String cookies, boolean verifiedPage, String pageUrl) {
-        boolean requiresCookie = isHost(sessionHost, "gaze.red");
-        if (!verifiedPage || !sameHost(pageUrl, sessionHost)
-                || (requiresCookie && TextUtils.isEmpty(cookies))) {
+        if (!verifiedPage || !sameHost(pageUrl, sessionHost)) {
             return false;
         }
         destroyBackgroundWebView();
         synchronized (WAITERS) {
             if (!TextUtils.isEmpty(cookies)) cookieHeader = cookies;
-            // 厂长普通页面可以没有挑战 Cookie；Gaze 必须同时具备正常页面和同域 Cookie。
-            ready = !requiresCookie || !TextUtils.isEmpty(cookies);
+            ready = true;
             warmupOpening = false;
             List<Runnable> callbacks = new ArrayList<>(WAITERS);
             WAITERS.clear();
