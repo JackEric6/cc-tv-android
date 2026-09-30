@@ -117,6 +117,57 @@ public class WebCmsRequestProcessTest {
     }
 
     @Test
+    public void gazePrefersMatchingSiblingTitleOverUnrelatedLinkMetadata() {
+        WebCmsRequestProcess process = new WebCmsRequestProcess();
+        JsonArray results = process.parseCards(Jsoup.parse(
+                "<html><head><title>庆余年 搜索结果</title></head><body>"
+                        + "<div class='result-tile'>"
+                        + "<a href='/play/2977b706dd8839b66805c7ce55cb07a5' "
+                        + "title='无关的推荐影片'>"
+                        + "<img src='/poster.jpg' alt='错误的图片标题'></a>"
+                        + "<div class='caption'><h3>庆余年 第二季</h3></div>"
+                        + "</div></body></html>",
+                "https://gaze.red/filter?search=%E5%BA%86%E4%BD%99%E5%B9%B4"),
+                "gaze", "庆余年");
+
+        assertEquals(1, results.size());
+        assertEquals("庆余年 第二季",
+                results.get(0).getAsJsonObject().get("vod_name").getAsString());
+    }
+
+    @Test
+    public void gazeRecognizesDataTitleOnSiblingCardNode() {
+        WebCmsRequestProcess process = new WebCmsRequestProcess();
+        JsonArray results = process.parseCards(Jsoup.parse(
+                "<html><head><title>庆余年 搜索结果</title></head><body>"
+                        + "<div class='result-tile'>"
+                        + "<a href='/play/2977b706dd8839b66805c7ce55cb07a5' "
+                        + "title='无关的推荐影片'><img src='/poster.jpg'></a>"
+                        + "<div data-title='庆余年 第二季'></div>"
+                        + "</div></body></html>",
+                "https://gaze.red/filter?search=%E5%BA%86%E4%BD%99%E5%B9%B4"),
+                "gaze", "庆余年");
+
+        assertEquals(1, results.size());
+        assertEquals("庆余年 第二季",
+                results.get(0).getAsJsonObject().get("vod_name").getAsString());
+    }
+
+    @Test
+    public void gazeDoesNotTreatUnrelatedNavigationLinkAsSearchResult() {
+        WebCmsRequestProcess process = new WebCmsRequestProcess();
+        JsonArray results = process.parseCards(Jsoup.parse(
+                "<html><head><title>庆余年 搜索结果</title></head><body>"
+                        + "<nav><a href='/play/2977b706dd8839b66805c7ce55cb07a5' "
+                        + "title='德剧《暗黑》人物关系'>德剧《暗黑》人物关系</a></nav>"
+                        + "</body></html>",
+                "https://gaze.red/filter?search=%E5%BA%86%E4%BD%99%E5%B9%B4"),
+                "gaze", "庆余年");
+
+        assertEquals(0, results.size());
+    }
+
+    @Test
     public void parsesCz4kSearchResultsAndDetailPlaybackPages() {
         WebCmsRequestProcess process = new WebCmsRequestProcess();
         JsonArray results = process.parseCards(Jsoup.parse(

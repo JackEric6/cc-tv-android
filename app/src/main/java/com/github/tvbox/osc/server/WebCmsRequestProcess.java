@@ -1126,6 +1126,10 @@ final class WebCmsRequestProcess implements RequestProcess {
     }
 
     private String cardName(Element link, Element card, String profile, String keyword) {
+        if ("gaze".equals(profile)) {
+            String gazeName = gazeCardTitle(link, keyword);
+            if (!gazeName.isEmpty()) return gazeName;
+        }
         String name = attrOrText(link, "title");
         if (!name.isEmpty()) return name;
         Element image = link.selectFirst("img[alt]");
@@ -1140,10 +1144,6 @@ final class WebCmsRequestProcess implements RequestProcess {
         if (title != null) {
             name = attrOrText(title, "title");
             if (name.isEmpty()) name = textOf(title);
-            if (!name.isEmpty()) return name;
-        }
-        if ("gaze".equals(profile)) {
-            name = gazeCardTitle(link, keyword);
             if (!name.isEmpty()) return name;
         }
         return textOf(link);
@@ -1163,18 +1163,36 @@ final class WebCmsRequestProcess implements RequestProcess {
                 continue;
             }
             for (Element title : current.select(
-                    "h1, h2, h3, h4, h5, [title], [class*=title], [class*=name]")) {
-                String candidate = attrOrText(title, "title");
-                if (candidate.isEmpty()) candidate = textOf(title);
-                if (!candidate.isEmpty()
-                        && containsSearchKeyword(candidate, "", keyword)) {
-                    return candidate;
-                }
+                    "h1, h2, h3, h4, h5, [title], [data-title], [data-name], "
+                            + "[data-vod-name], [data-original-title], [aria-label], "
+                            + "[class*=title], [class*=name], img[alt]")) {
+                String candidate = matchingGazeLabel(title, keyword);
+                if (!candidate.isEmpty()) return candidate;
             }
+            String imageAlt = link.select("img[alt]").stream()
+                    .map(image -> image.attr("alt").trim())
+                    .filter(candidate -> containsSearchKeyword(candidate, "", keyword))
+                    .findFirst().orElse("");
+            if (!imageAlt.isEmpty()) return imageAlt;
+            String linkTitle = attrOrText(link, "title");
+            if (containsSearchKeyword(linkTitle, "", keyword)) return linkTitle;
             String linkText = textOf(link);
             if (containsSearchKeyword(linkText, "", keyword)) return linkText;
         }
         return "";
+    }
+
+    private String matchingGazeLabel(Element element, String keyword) {
+        String[] attributes = {
+                "title", "data-title", "data-name", "data-vod-name",
+                "data-original-title", "aria-label", "alt"
+        };
+        for (String attribute : attributes) {
+            String candidate = element.attr(attribute).trim();
+            if (containsSearchKeyword(candidate, "", keyword)) return candidate;
+        }
+        String candidate = textOf(element);
+        return containsSearchKeyword(candidate, "", keyword) ? candidate : "";
     }
 
     private String attrOrText(Element element, String attr) {
