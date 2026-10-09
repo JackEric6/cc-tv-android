@@ -1164,8 +1164,12 @@ public class PlaybackController {
                             if (view != null) view.showParse(false);
                             if (view != null) playUrl(playUrl + url, headers);
                         }
-                        // 播放成功后不再自动启动弹幕服务或联网搜索弹幕。
-                        // 原 JAR 的自动弹幕失败提示会干扰原生源播放；用户仍可从播放器菜单手动触发。
+                        // 弹幕与视频并行加载：源提供的地址优先使用；为空则立即搜索，解析为空时自动换用搜索结果。
+                        if (TextUtils.isEmpty(danmaku)) {
+                            searchDanmu();
+                        } else {
+                            checkDanmu(danmaku, PlaybackController.this::searchDanmu);
+                        }
                     } catch (Throwable th) {
                         handleResolvePlayUrlFailed("获取播放信息错误");
                     }
@@ -1261,16 +1265,22 @@ public class PlaybackController {
         return value.contains("lyric") || value.contains("lrc") || name.contains("歌词");
     }
 
-    /** 取流结果没带弹幕地址时联网搜一份(与进度键绑定:切集后旧结果作废) */
-    private void searchDanmu(String danmaku) {
-        if (!TextUtils.isEmpty(danmaku) || !DanmakuApi.canSearch() || vod() == null) return;
+    /**
+     * 搜索当前集的备用弹幕(与进度键绑定：切集后旧结果作废)。
+     *
+     * <p>调用方只在源未给弹幕或源弹幕解析为空时进入；搜索到的结果再次解析失败时停止，避免坏接口无限重试。
+     */
+    private void searchDanmu() {
+        if (!DanmakuApi.canSearch() || vod() == null) return;
         VodInfo.VodSeries series = currentSeries(vod().playFlag, vod().playIndex);
         String key = progressKey();
         DanmakuApi.search(vod().name, series == null ? "" : series.name, new DanmakuApi.SearchCallback() {
             @Override
             public void onFound(String url) {
                 if (!TextUtils.equals(key, progressKey())) return;
-                checkDanmu(url, null);
+                checkDanmu(url, () -> {
+                    if (TextUtils.equals(key, progressKey())) checkDanmu("", null);
+                });
             }
 
             @Override
@@ -1539,7 +1549,7 @@ public class PlaybackController {
         if (!url.startsWith("data:application")) {
             EventBus.getDefault().post(new RefreshEvent(RefreshEvent.TYPE_REFRESH, url));//更新播放地址
         }
-        if (!KV.get(HawkConfig.M3U8_PURIFY, false)) {
+        if (!KV.get(HawkConfig.M3U8_PURIFY, true)) {
             goPlayUrl(url, headers);
             return;
         }
