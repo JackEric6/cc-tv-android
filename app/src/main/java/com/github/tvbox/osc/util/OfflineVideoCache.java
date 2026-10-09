@@ -61,7 +61,7 @@ public final class OfflineVideoCache {
     private static final String INDEX_FILE = "offline-tasks.json";
     // iOS URLSession 会把网络回调与磁盘写入分离；安卓这里用更大的顺序缓冲，
     // 降低高码率直链上 read/锁/进度回调的固定开销。
-    private static final int BUFFER_SIZE = 256 * 1024;
+    private static final int BUFFER_SIZE = 512 * 1024;
     private static final int DIRECT_PARALLEL_WORKERS = 6;
     private static final long DIRECT_PARALLEL_MIN_BYTES = 8L * 1024L * 1024L;
     private static final long DIRECT_RANGE_CHUNK_BYTES = 8L * 1024L * 1024L;
@@ -110,11 +110,15 @@ public final class OfflineVideoCache {
             current = downloadClient;
             if (current == null) {
                 Dispatcher dispatcher = new Dispatcher();
-                dispatcher.setMaxRequests(64);
-                dispatcher.setMaxRequestsPerHost(32);
+                // 批量缓存时每集会同时拉取多个 HLS 分片；这里不能让 OkHttp
+                // 的默认主机队列把多个瓜子任务压回到单连接吞吐。
+                dispatcher.setMaxRequests(256);
+                dispatcher.setMaxRequestsPerHost(256);
                 current = OkHttp.client().newBuilder()
                         .dispatcher(dispatcher)
-                        .connectionPool(new ConnectionPool(32, 5, java.util.concurrent.TimeUnit.MINUTES))
+                        .connectionPool(new ConnectionPool(128, 5, java.util.concurrent.TimeUnit.MINUTES))
+                        .followRedirects(true)
+                        .followSslRedirects(true)
                         .retryOnConnectionFailure(true)
                         .build();
                 downloadClient = current;

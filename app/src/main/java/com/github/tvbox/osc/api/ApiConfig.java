@@ -57,6 +57,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
@@ -202,6 +203,9 @@ public class ApiConfig {
                     callback.success();
                 } catch (Throwable th) {
                     th.printStackTrace();
+                    if (loadBundledDefaultConfig(apiUrl, callback)) {
+                        return;
+                    }
                     callback.error("配置解析失败");
                 }
             }
@@ -730,6 +734,29 @@ public class ApiConfig {
         HistoryHelper.clearApiLineList();
     }
 
+    private static boolean isRemovedLegacySource(SourceBean source) {
+        if (source == null) return true;
+        String key = source.getKey() == null ? "" : source.getKey().trim();
+        String name = source.getName() == null ? "" : source.getName().trim();
+        String api = source.getApi() == null ? "" : source.getApi().toLowerCase(Locale.ROOT);
+        return "ikunzy".equalsIgnoreCase(key)
+                || name.contains("爱坤")
+                || api.contains("ikunzy")
+                || "fan_bit".equalsIgnoreCase(key)
+                || "fan_hot".equalsIgnoreCase(key)
+                || "fan_juquan".equalsIgnoreCase(key)
+                || "比特".equals(name)
+                || "热播".equals(name)
+                || "剧圈".equals(name)
+                || name.contains("比特影视")
+                || name.contains("比特┃")
+                || name.contains("热播┃")
+                || name.contains("剧圈┃")
+                || api.contains("native://fan_bit")
+                || api.contains("native://fan_hot")
+                || api.contains("native://fan_juquan");
+    }
+
     private void parseJson(String apiUrl, String jsonStr) {
         resetConfigData();
         LOG.i("echo-apiurl:" + apiUrl);
@@ -742,7 +769,10 @@ public class ApiConfig {
         danmaku = DefaultConfig.safeJsonString(infoJson, "danmaku", "");
         // 远端站点源
         mergeBundledDefaultSources(apiUrl, infoJson);
-        List<SourceBean> sites = ConfigParser.parseSites(infoJson);
+        List<SourceBean> sites = new ArrayList<>();
+        for (SourceBean site : ConfigParser.parseSites(infoJson)) {
+            if (!isRemovedLegacySource(site)) sites.add(site);
+        }
         for (SourceBean sb : sites) {
             // 配置文件可能写死默认端口,但本地服务遇到端口占用会自动递增。
             // 统一注入当前真实地址,否则首页、搜索和播放适配器会一起请求到失效端口。

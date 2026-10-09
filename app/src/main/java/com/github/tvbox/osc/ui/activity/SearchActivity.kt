@@ -168,6 +168,7 @@ class SearchViewModel : ViewModel() {
         private val SEARCH_SEQ = java.util.concurrent.atomic.AtomicInteger(0)
 
         private const val SEARCH_TIMEOUT_MS = 30_000L
+        private const val CZ4K_SEARCH_TIMEOUT_MS = 75_000L
 
         /** 搜索页固定的源优先级；未列出的源保持配置原顺序。 */
         internal fun sourcePriority(key: String?, name: String?): Int {
@@ -473,7 +474,12 @@ class SearchViewModel : ViewModel() {
                     async {
                         var completed = false
                         try {
-                            completed = withTimeoutOrNull(SEARCH_TIMEOUT_MS) {
+                            val timeout = if (bean.key == "cz4k") {
+                                CZ4K_SEARCH_TIMEOUT_MS
+                            } else {
+                                SEARCH_TIMEOUT_MS
+                            }
+                            completed = withTimeoutOrNull(timeout) {
                                 semaphore.withPermit {
                                     if (myToken == token) {
                                         val done = kotlinx.coroutines.CompletableDeferred<Unit>()

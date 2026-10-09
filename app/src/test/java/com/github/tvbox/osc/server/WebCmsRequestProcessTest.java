@@ -17,6 +17,17 @@ import okhttp3.HttpUrl;
 
 public class WebCmsRequestProcessTest {
     @Test
+    public void challengeProgressPageIsStillAValidationPage() {
+        assertTrue(Cz4kBrowserSession.isChallengeText("正在验证...16%"));
+        assertTrue(Cz4kBrowserSession.isValidationPage(
+                "访问验证", "正在验证...16%", "https://www.cz4k.com/",
+                true, "working"));
+        assertFalse(Cz4kBrowserSession.isValidationPage(
+                "庆余年 搜索结果", "庆余年第二季", "https://www.cz4k.com/",
+                false, ""));
+    }
+
+    @Test
     public void onlySearchAndDetailRequestsReachWebSite() {
         Map<String, String> search = new HashMap<>();
         search.put("wd", "沉默的荣耀");
@@ -30,6 +41,66 @@ public class WebCmsRequestProcessTest {
         home.put("t", "1");
         assertFalse(WebCmsRequestProcess.isSearchOrDetailRequest(home));
         assertFalse(WebCmsRequestProcess.isSearchOrDetailRequest(new HashMap<>()));
+    }
+
+    @Test
+    public void recognizesCz4kAsAnAllowedWebSourceWithoutOpeningOtherHosts() {
+        WebCmsRequestProcess process = new WebCmsRequestProcess();
+
+        assertTrue(process.isAllowedSource("https://www.cz4k.com"));
+        assertTrue(process.isAllowedSource("https://cz4k.com/"));
+        assertEquals("cz4k", process.profile("https://www.cz4k.com/"));
+        assertFalse(process.isAllowedSource("https://example.com"));
+    }
+
+    @Test
+    public void parsesCz4kSearchResultsAndDetailPlaybackPages() {
+        WebCmsRequestProcess process = new WebCmsRequestProcess();
+        JsonArray results = process.parseCards(Jsoup.parse(
+                "<html><head><title>沉默的荣耀 搜索结果</title></head><body>"
+                        + "<div class='search-list'><article class='item'>"
+                        + "<a href='/movie/7580.html' title='庆余年'>"
+                        + "<img data-original='https://img.example/772.jpg' "
+                        + "alt='庆余年'></a></article></div></body></html>",
+                "https://www.cz4k.com/nimasile?q=%E5%BA%86%E4%BD%99%E5%B9%B4"),
+                "cz4k", "庆余年");
+        String detailUrl = "https://www.cz4k.com/movie/7580.html";
+        java.util.Set<String> episodes = process.extractPlayableEpisodes(
+                Jsoup.parse("<div class='playlist'>"
+                                + "<a href='/v_play/bXZfNzU4MC1ubV8x.html'>第01集</a>"
+                                + "</div>", detailUrl),
+                detailUrl, "cz4k");
+
+        assertEquals(1, results.size());
+        assertEquals("/movie/7580.html",
+                results.get(0).getAsJsonObject().get("vod_id").getAsString());
+        assertEquals("https://img.example/772.jpg",
+                results.get(0).getAsJsonObject().get("vod_pic").getAsString());
+        assertEquals(1, episodes.size());
+        assertTrue(episodes.contains("第01集$"
+                + "https://www.cz4k.com/v_play/bXZfNzU4MC1ubV8x.html"));
+    }
+
+    @Test
+    public void cz4kSearchUsesItsNimasileQueryRoute() {
+        List<WebCmsRequestProcess.SearchRequest> requests =
+                WebCmsRequestProcess.buildSearchRequests("cz4k", "庆余年", 1);
+
+        assertEquals(1, requests.size());
+        assertEquals("GET", requests.get(0).method);
+        HttpUrl url = HttpUrl.get("https://www.cz4k.com" + requests.get(0).path);
+        assertEquals("/nimasile", url.encodedPath());
+        assertEquals("庆余年", url.queryParameter("q"));
+    }
+
+    @Test
+    public void cz4kSearchAddsPageAfterTheFirstPage() {
+        List<WebCmsRequestProcess.SearchRequest> requests =
+                WebCmsRequestProcess.buildSearchRequests("cz4k", "庆余年", 2);
+
+        HttpUrl url = HttpUrl.get("https://www.cz4k.com" + requests.get(0).path);
+        assertEquals("庆余年", url.queryParameter("q"));
+        assertEquals("2", url.queryParameter("page"));
     }
 
     @Test

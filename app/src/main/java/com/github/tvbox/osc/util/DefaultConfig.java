@@ -40,8 +40,10 @@ public class DefaultConfig {
             }
         }
 
-        // 先依据资源站自己返回的父子关系裁掉父入口,再应用配置中的名称筛选。
-        List<MovieSort.SortData> leafData = filterParentCategories(sourceData);
+        // 瓜子适配器已经把首页片单和普通分类整理成可直接请求的顺序，
+        // 这里必须保留该顺序和“电视剧/电影”等瓜子分类，不能再按西瓜模板重排。
+        List<MovieSort.SortData> leafData = "guazi".equalsIgnoreCase(sourceKey)
+                ? sourceData : filterParentCategories(sourceData);
         List<MovieSort.SortData> data = new ArrayList<>();
         if (sourceKey != null) {
             SourceBean sb = ApiConfig.get().getSource(sourceKey);
@@ -61,7 +63,7 @@ public class DefaultConfig {
             data.addAll(leafData);
         }
 
-        sortCategories(data);
+        if (!"guazi".equalsIgnoreCase(sourceKey)) sortCategories(data);
         if (withMy) data.add(0, new MovieSort.SortData("my0", "主页"));
         return data;
     }

@@ -72,7 +72,9 @@ final class WebCmsRequestProcess implements RequestProcess {
             "www.ikang.org",
             "www.fjsycjs.com",
             "www.zanpian.org",
-            "www.88ystv.com"
+            "www.88ystv.com",
+            "cz4k.com",
+            "www.cz4k.com"
     ));
     private static final OkHttpClient CLIENT = new OkHttpClient.Builder()
             .dns(Dns.SYSTEM)
@@ -162,7 +164,7 @@ final class WebCmsRequestProcess implements RequestProcess {
         List<SearchRequest> requests = new ArrayList<>();
         boolean searchDisabled = false;
         boolean searchBlocked = false;
-        boolean discoverAfterKnownRoutes = "zanpian".equals(profile);
+        boolean discoverAfterKnownRoutes = "zanpian".equals(profile) || "cz4k".equals(profile);
         if (!discoverAfterKnownRoutes) {
             try {
                 requests.addAll(discoverSearchRequests(source, keyword, currentPage, profile));
@@ -194,7 +196,9 @@ final class WebCmsRequestProcess implements RequestProcess {
                     + resolve(source, request.path) + " " + request.form;
             if (!attempted.add(signature)) continue;
             try {
-                Document document = fetchDocument(source, request);
+                Document document = "cz4k".equals(profile)
+                        ? fetchDocument(source, request, CLIENT)
+                        : fetchDocument(source, request);
                 if (isSearchDisabledPage(document)) {
                     searchDisabled = true;
                     continue;
@@ -371,6 +375,10 @@ final class WebCmsRequestProcess implements RequestProcess {
             path.append("-ajax");
             requests.add(new SearchRequest("GET", path.toString(),
                     Collections.<String, String>emptyMap(), true));
+        } else if ("cz4k".equals(profile)) {
+            String path = "/nimasile?q=" + encoded;
+            if (currentPage > 1) path += "&page=" + currentPage;
+            requests.add(getSearchRequest(path));
         } else {
             requests.add(getSearchRequest(buildPath(
                     "/vodsearch/-------------.html", "wd", keyword,
@@ -394,10 +402,12 @@ final class WebCmsRequestProcess implements RequestProcess {
         Document document = fetchDocument(detailUrl);
         JsonObject vod = new JsonObject();
         String content = firstText(document, "meta[name=description]", ".fed-deta-content",
-                ".yplx_c3", ".detail-content", ".vod_content");
+                ".yplx_c3", ".detail-content", ".vod_content", ".description",
+                ".video-description", "[class*=description]", "[class*=synopsis]");
         String name = firstText(document, "meta[property=og:title]", "meta[name=twitter:title]",
                 ".fed-deta-info h1", ".con_name h1", ".detail-info h1",
-                ".module-info-heading h1", ".video-title", ".vod-name", "h1");
+                ".module-info-heading h1", ".video-title", ".vod-name",
+                ".video-detail-title", ".movie-title", "h1");
         name = resolveDetailTitle(name, document.title(), content);
         vod.addProperty("vod_id", id);
         vod.addProperty("vod_name", name);
@@ -573,7 +583,7 @@ final class WebCmsRequestProcess implements RequestProcess {
             String id = detailId(document, href, profile);
             if (id.isEmpty()) continue;
             Element card = findCard(link);
-            String name = cardName(link, card);
+            String name = cardName(link, card, profile, keyword);
             if (name.isEmpty()) continue;
             String context = card == null ? textOf(link) : textOf(card);
             if (!containsSearchKeyword(name, context, keyword)) continue;
@@ -581,7 +591,7 @@ final class WebCmsRequestProcess implements RequestProcess {
             JsonObject vod = new JsonObject();
             vod.addProperty("vod_id", id);
             vod.addProperty("vod_name", cleanTitle(name));
-            vod.addProperty("vod_pic", imageOf(link, card));
+            vod.addProperty("vod_pic", absoluteUrl(document.location(), imageOf(link, card)));
             vod.addProperty("vod_remarks", remarkOf(link, card));
             vod.addProperty("vod_year", firstYear(name));
             vod.addProperty("vod_play_from", "");
@@ -638,7 +648,7 @@ final class WebCmsRequestProcess implements RequestProcess {
             String pathAndQuery = (page.encodedPath() + " " + page.encodedQuery())
                     .toLowerCase(Locale.ROOT);
             if (pathAndQuery.contains("search") || pathAndQuery.contains("vodsearch")) return true;
-            for (String field : new String[]{"wd", "searchword", "keyword", "q"}) {
+            for (String field : new String[]{"wd", "searchword", "keyword", "q", "search"}) {
                 String submitted = page.queryParameter(field);
                 if (!submitted.isEmpty()
                         && normalizeSearchText(submitted).equals(normalizeSearchText(keyword))) {
@@ -666,7 +676,8 @@ final class WebCmsRequestProcess implements RequestProcess {
                 "系统安全验证", "请输入验证码", "访问验证", "请完成验证",
                 "身份验证", "安全验证", "滑动验证",
                 "captcha", "cloudflare", "just a moment", "attention required",
-                "403 forbidden", "access denied", "checking your browser"
+                "403 forbidden", "access denied", "checking your browser",
+                "雷池", "safeline", "安全检查", "访问验证", "请稍候", "人机验证"
         };
         for (String marker : markers) {
             if (text.contains(marker)) return true;
@@ -759,6 +770,7 @@ final class WebCmsRequestProcess implements RequestProcess {
         }
         return lower.contains("/p/") || lower.contains("/play")
                 || lower.contains("/vodplay") || lower.contains("/player")
+                || lower.contains("/v_play/")
                 || lower.endsWith(".m3u8") || lower.endsWith(".mp4");
     }
 
@@ -816,11 +828,12 @@ final class WebCmsRequestProcess implements RequestProcess {
         String url = resolve(source, searchRequest.path);
         Request.Builder requestBuilder = new Request.Builder()
                 .url(url)
-                .header("User-Agent", USER_AGENT)
+                .header("User-Agent", browserUserAgent(url))
                 .header("Accept", "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8")
                 .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
                 .header("Referer", source)
                 .header("Origin", origin(source));
+        addBrowserCookie(requestBuilder, url);
         if (searchRequest.htmlInJson) {
             requestBuilder.header("X-Requested-With", "XMLHttpRequest")
                     .header("Accept", "application/json, text/javascript, */*; q=0.01");
@@ -838,11 +851,15 @@ final class WebCmsRequestProcess implements RequestProcess {
         if (!searchRequest.htmlInJson) return executeDocument(url, request, client);
 
         try (Response response = client.newCall(request).execute()) {
-            if (!response.isSuccessful() || response.body() == null) {
+            if (response.body() == null) {
+                throw new IOException("HTTP " + response.code());
+            }
+            String payload = response.body().string();
+            if (!response.isSuccessful()) {
                 throw new IOException("HTTP " + response.code());
             }
             Document document = parseHtmlInJson(
-                    response.body().string(), response.request().url().toString());
+                    payload, response.request().url().toString());
             if (isBlockedPage(document)) {
                 throw new IOException("站点安全验证或拦截");
             }
@@ -851,17 +868,12 @@ final class WebCmsRequestProcess implements RequestProcess {
     }
 
     static Document parseHtmlInJson(String response, String baseUri) throws IOException {
+        String body = response == null ? "" : response.trim();
+        if (body.startsWith("<")) return Jsoup.parse(body, baseUri);
         try {
-            JsonObject root = JsonParser.parseString(response).getAsJsonObject();
-            JsonElement data = root.get("data");
-            if (data == null || !data.isJsonObject()) {
-                throw new IOException("搜索响应缺少 data");
-            }
-            JsonElement html = data.getAsJsonObject().get("ajaxtxt");
-            if (html == null || !html.isJsonPrimitive()) {
-                throw new IOException("搜索响应缺少 ajaxtxt");
-            }
-            return Jsoup.parse(html.getAsString(), baseUri);
+            String html = findHtmlPayload(JsonParser.parseString(body));
+            if (html.isEmpty()) throw new IOException("搜索响应未包含 HTML 列表");
+            return Jsoup.parse(html, baseUri);
         } catch (IOException error) {
             throw error;
         } catch (Throwable error) {
@@ -869,14 +881,46 @@ final class WebCmsRequestProcess implements RequestProcess {
         }
     }
 
+    private static String findHtmlPayload(JsonElement element) {
+        if (element == null || element.isJsonNull()) return "";
+        if (element.isJsonPrimitive()) {
+            com.google.gson.JsonPrimitive primitive = element.getAsJsonPrimitive();
+            if (!primitive.isString()) return "";
+            String value = primitive.getAsString();
+            return value.contains("<") && value.contains(">") ? value : "";
+        }
+        if (element.isJsonArray()) {
+            String best = "";
+            for (JsonElement child : element.getAsJsonArray()) {
+                String candidate = findHtmlPayload(child);
+                if (candidate.length() > best.length()) best = candidate;
+            }
+            return best;
+        }
+        if (!element.isJsonObject()) return "";
+        JsonObject object = element.getAsJsonObject();
+        String[] preferredKeys = {"ajaxtxt", "html", "content", "body", "data", "result", "list"};
+        for (String key : preferredKeys) {
+            String candidate = findHtmlPayload(object.get(key));
+            if (!candidate.isEmpty()) return candidate;
+        }
+        String best = "";
+        for (Map.Entry<String, JsonElement> entry : object.entrySet()) {
+            String candidate = findHtmlPayload(entry.getValue());
+            if (candidate.length() > best.length()) best = candidate;
+        }
+        return best;
+    }
+
     private Document fetchDocument(String url) throws IOException {
-        Request request = new Request.Builder()
+        Request.Builder requestBuilder = new Request.Builder()
                 .url(url)
-                .header("User-Agent", USER_AGENT)
+                .header("User-Agent", browserUserAgent(url))
                 .header("Accept", "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8")
                 .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-                .header("Referer", url)
-                .build();
+                .header("Referer", url);
+        addBrowserCookie(requestBuilder, url);
+        Request request = requestBuilder.build();
         return executeDocument(url, request);
     }
 
@@ -945,14 +989,34 @@ final class WebCmsRequestProcess implements RequestProcess {
         return root.toString();
     }
 
-    private String profile(String source) {
+    String profile(String source) {
         String host = HttpUrl.get(source).host().toLowerCase(Locale.ROOT);
+        if (host.equals("cz4k.com") || host.equals("www.cz4k.com")) return "cz4k";
         if (host.equals("www.zzhuilv.cn")) return "fed";
         if (host.equals("www.zanpian.org")) return "zanpian";
         return "maccms";
     }
 
-    private boolean isAllowedSource(String source) {
+    private String browserUserAgent(String url) {
+        return isBrowserSessionUrl(url) ? Cz4kBrowserSession.userAgentForUrl(url) : USER_AGENT;
+    }
+
+    private void addBrowserCookie(Request.Builder requestBuilder, String url) {
+        if (!isBrowserSessionUrl(url)) return;
+        String cookies = Cz4kBrowserSession.getCookieHeaderForUrl(url);
+        if (!TextUtils.isEmpty(cookies)) requestBuilder.header("Cookie", cookies);
+    }
+
+    private boolean isBrowserSessionUrl(String url) {
+        try {
+            String host = HttpUrl.get(url).host().toLowerCase(Locale.ROOT);
+            return host.equals("cz4k.com") || host.equals("www.cz4k.com");
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    boolean isAllowedSource(String source) {
         if (TextUtils.isEmpty(source)) return false;
         try {
             return ALLOWED_HOSTS.contains(HttpUrl.get(source).host().toLowerCase(Locale.ROOT));
@@ -976,8 +1040,9 @@ final class WebCmsRequestProcess implements RequestProcess {
         Element image = document.selectFirst(".detail-info-pic img, .fed-deta-info img, "
                 + "meta[property=og:image], img[alt]");
         if (image == null) return "";
-        if ("meta".equals(image.tagName())) return image.attr("content").trim();
-        return imageAttr(image);
+        String value = "meta".equals(image.tagName())
+                ? image.attr("content").trim() : imageAttr(image);
+        return absoluteUrl(document.location(), value);
     }
 
     private String imageOf(Element link, Element card) {
@@ -1003,6 +1068,25 @@ final class WebCmsRequestProcess implements RequestProcess {
             if (!value.isEmpty() && !value.contains("blank")) return value;
         }
         return "";
+    }
+
+    private String absoluteUrl(String base, String value) {
+        if (value == null || value.trim().isEmpty()) return "";
+        String path = value.trim();
+        if (path.startsWith("//")) {
+            try {
+                return HttpUrl.get(base).scheme() + ":" + path;
+            } catch (Throwable ignored) {
+                return "https:" + path;
+            }
+        }
+        if (path.startsWith("http://") || path.startsWith("https://")) return path;
+        try {
+            HttpUrl resolved = HttpUrl.get(base).resolve(path);
+            return resolved == null ? path : resolved.toString();
+        } catch (Throwable ignored) {
+            return path;
+        }
     }
 
     private String remarkOf(Element link, Element card) {
@@ -1032,7 +1116,7 @@ final class WebCmsRequestProcess implements RequestProcess {
         return link;
     }
 
-    private String cardName(Element link, Element card) {
+    private String cardName(Element link, Element card, String profile, String keyword) {
         String name = attrOrText(link, "title");
         if (!name.isEmpty()) return name;
         Element image = link.selectFirst("img[alt]");

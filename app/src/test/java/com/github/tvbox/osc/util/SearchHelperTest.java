@@ -65,10 +65,28 @@ public class SearchHelperTest {
         assertTrue(SearchHelper.isSearchVerified("yzzy"));
         assertTrue(SearchHelper.isSearchVerified("ikanbot"));
         assertTrue(SearchHelper.isSearchVerified("fhw88"));
-        assertTrue(SearchHelper.isSearchVerified("ikunzy"));
+        assertFalse(SearchHelper.isSearchVerified("ikunzy"));
         assertTrue(SearchHelper.isSearchVerified("qiumu"));
         assertTrue(SearchHelper.isSearchVerified("cechi"));
         assertTrue(SearchHelper.isSearchVerified("zanpian"));
+        assertTrue(SearchHelper.isSearchVerified("cz4k"));
+        assertTrue(SearchHelper.isSearchVerified("fan_nomi"));
+        assertTrue(SearchHelper.isSearchVerified("fan_moli"));
+        assertTrue(SearchHelper.isSearchVerified("fan_cheese"));
+        assertTrue(SearchHelper.isSearchVerified("fan_jianpian"));
+        assertTrue(SearchHelper.isSearchVerified("fan_guangying"));
+        assertTrue(SearchHelper.isSearchVerified("fan_libbo"));
+        assertTrue(SearchHelper.isSearchVerified("cms_baidu"));
+        assertTrue(SearchHelper.isSearchVerified("cms_liangzi"));
+        assertTrue(SearchHelper.isSearchVerified("cms_feifan"));
+        assertTrue(SearchHelper.isSearchVerified("cms_haiwaikan"));
+        assertTrue(SearchHelper.isSearchVerified("cms_baofeng"));
+        assertTrue(SearchHelper.isSearchVerified("cms_suoni"));
+        assertTrue(SearchHelper.isSearchVerified("cms_kuaifan"));
+        assertTrue(SearchHelper.isSearchVerified("cms_leshi"));
+        assertFalse(SearchHelper.isSearchVerified("fan_bit"));
+        assertFalse(SearchHelper.isSearchVerified("fan_hot"));
+        assertFalse(SearchHelper.isSearchVerified("fan_juquan"));
         assertFalse(SearchHelper.isSearchVerified("beike"));
         assertFalse(SearchHelper.isSearchVerified("meitan"));
         assertFalse(SearchHelper.isSearchVerified("haier"));
@@ -78,27 +96,48 @@ public class SearchHelperTest {
     }
 
     @Test
+    public void cz4kWebResultsCanAppearWithoutAUsablePoster() {
+        assertTrue(SearchHelper.allowsPosterlessSearchResult("cz4k"));
+        assertFalse(SearchHelper.allowsPosterlessSearchResult("unknown"));
+    }
+
+    @Test
     public void bundledSourcesAreAddedToAnExistingSearchSelection() {
         HashMap<String, String> selected = checked("xgzy", "qiumu", "beike");
         HashMap<String, String> merged = SearchHelper.mergeBundledSearchSources(
                 selected, keys("xgzy", "qiumu", "beike", "cechi", "zanpian",
-                        "meitan", "unknown"));
+                "meitan", "cz4k", "fan_bit", "fan_nomi", "fan_hot",
+                        "fan_moli", "fan_cheese", "fan_juquan", "fan_jianpian",
+                        "fan_guangying", "fan_libbo", "cms_baidu", "cms_liangzi",
+                        "cms_feifan", "cms_haiwaikan", "cms_baofeng", "cms_suoni",
+                        "cms_kuaifan", "cms_leshi",
+                        "unknown"));
 
         assertTrue(merged.containsKey("xgzy"));
         assertTrue(merged.containsKey("qiumu"));
         assertFalse(merged.containsKey("beike"));
         assertTrue(merged.containsKey("cechi"));
         assertTrue(merged.containsKey("zanpian"));
+        assertTrue(merged.containsKey("cz4k"));
+        assertTrue(merged.containsKey("fan_nomi"));
+        assertTrue(merged.containsKey("fan_moli"));
+        assertTrue(merged.containsKey("fan_cheese"));
+        assertTrue(merged.containsKey("fan_jianpian"));
+        assertTrue(merged.containsKey("fan_guangying"));
+        assertTrue(merged.containsKey("fan_libbo"));
+        assertTrue(merged.containsKey("cms_baidu"));
+        assertTrue(merged.containsKey("cms_liangzi"));
+        assertTrue(merged.containsKey("cms_feifan"));
+        assertTrue(merged.containsKey("cms_haiwaikan"));
+        assertTrue(merged.containsKey("cms_baofeng"));
+        assertTrue(merged.containsKey("cms_suoni"));
+        assertTrue(merged.containsKey("cms_kuaifan"));
+        assertTrue(merged.containsKey("cms_leshi"));
+        assertFalse(merged.containsKey("fan_bit"));
+        assertFalse(merged.containsKey("fan_hot"));
+        assertFalse(merged.containsKey("fan_juquan"));
         assertFalse(merged.containsKey("meitan"));
         assertFalse(merged.containsKey("unknown"));
     }
 
-    @Test
-    public void ikunIsAddedToExistingSelectionsOnceBundled() {
-        HashMap<String, String> merged = SearchHelper.mergeIkunSearchSource(
-                checked("xgzy"), keys("xgzy", "ikunzy"));
-
-        assertTrue(merged.containsKey("xgzy"));
-        assertTrue(merged.containsKey("ikunzy"));
-    }
 }

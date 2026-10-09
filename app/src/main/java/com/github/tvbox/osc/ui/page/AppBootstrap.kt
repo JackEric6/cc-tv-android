@@ -1,6 +1,5 @@
 package com.github.tvbox.osc.ui.page
 
-import android.widget.Toast
 import com.github.tvbox.osc.api.ApiConfig
 import com.github.tvbox.osc.event.RefreshEvent
 import com.github.tvbox.osc.server.ControlManager
@@ -22,6 +21,8 @@ object AppBootstrap {
 
     sealed interface Boot {
         data object Loading : Boot
+        /** 配置已就绪；非 Spider 首页可以先加载，JAR 在后台继续准备。 */
+        data object HomeReady : Boot
         data object Ready : Boot
         data class Error(val msg: String) : Boot
     }
@@ -33,6 +34,8 @@ object AppBootstrap {
     private var started = false
     private var dataInitOk = false
     private var jarInitOk = false
+    private var jarLoading = false
+    private var initGeneration = 0
 
     fun start() {
         // MainActivity 退出时会主动停止本地 CMS 服务,但 Android 可能保留进程;
@@ -53,15 +56,19 @@ object AppBootstrap {
     }
 
     fun retry() {
+        initGeneration++
         dataInitOk = false
         jarInitOk = false
+        jarLoading = false
         _state.value = Boot.Loading
         startInit()
     }
 
     fun continueOffline() {
+        initGeneration++
         dataInitOk = true
         jarInitOk = true
+        jarLoading = false
         _state.value = Boot.Loading
         startInit()
     }
@@ -74,6 +81,7 @@ object AppBootstrap {
     }
 
     private fun startInit() {
+        val generation = initGeneration
         scope.launch {
             if (!dataInitOk) {
                 val err = awaitLoadConfig()
@@ -90,12 +98,46 @@ object AppBootstrap {
                     if (ApiConfig.get().getSpider().isEmpty()) jarInitOk = true
                 }
             }
-            if (dataInitOk && !jarInitOk) {
-                val err = awaitLoadJar()
+            if (!dataInitOk || generation != initGeneration) return@launch
+
+            val spider = ApiConfig.get().getSpider()
+            if (spider.isEmpty()) {
                 jarInitOk = true
-                if (err != null) toast(err + " jar load err")
+                _state.value = Boot.Ready
+                return@launch
             }
-            if (dataInitOk && jarInitOk) {
+
+            // 首页优先源是 CMS/原生适配时，不必等待兼容 Spider 的 JAR。
+            // Spider 首页仍保持旧顺序，避免在 Spider 尚未装载时启动 homeContent。
+            val homeNeedsJar = ApiConfig.get().getHomeSourceBean().type == 3
+            if (homeNeedsJar && !jarInitOk) {
+                val err = awaitLoadJar()
+                if (generation != initGeneration) return@launch
+                jarInitOk = true
+                if (err != null) {
+                    com.github.tvbox.osc.util.LOG.i("jar load skipped: $err")
+                }
+                ApiConfig.get().warmSearchSpiders()
+                _state.value = Boot.Ready
+                return@launch
+            }
+
+            if (!jarInitOk && !jarLoading) {
+                jarLoading = true
+                _state.value = Boot.HomeReady
+                scope.launch {
+                    val err = awaitLoadJar()
+                    if (generation != initGeneration) return@launch
+                    jarInitOk = true
+                    jarLoading = false
+                    if (err != null) {
+                        // JAR 是兼容能力，不能因为历史源加载失败在启动时打断原生源体验。
+                        com.github.tvbox.osc.util.LOG.i("jar load skipped: $err")
+                    }
+                    ApiConfig.get().warmSearchSpiders()
+                    _state.value = Boot.Ready
+                }
+            } else if (jarInitOk) {
                 ApiConfig.get().warmSearchSpiders()
                 _state.value = Boot.Ready
             }
@@ -113,7 +155,7 @@ object AppBootstrap {
             }
 
             override fun notice(msg: String?) {
-                toast(msg)
+                com.github.tvbox.osc.util.LOG.i("config notice: $msg")
             }
         }, null)
     }
@@ -129,16 +171,9 @@ object AppBootstrap {
             }
 
             override fun notice(msg: String?) {
-                toast(msg)
+                com.github.tvbox.osc.util.LOG.i("jar notice: $msg")
             }
         })
     }
 
-    private fun toast(msg: String?) {
-        if (msg.isNullOrEmpty()) return
-        val context = com.github.tvbox.osc.base.App.getInstance()
-        android.os.Handler(android.os.Looper.getMainLooper()).post {
-            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-        }
-    }
 }
