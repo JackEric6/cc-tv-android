@@ -143,12 +143,17 @@ class ComposeVideoController @JvmOverloads constructor(
 
     private val m3u8PurifyUseCase by lazy {
         M3u8PurifyUseCase(context, object : M3u8PurifyUseCase.Callback {
-            override fun startPlayUrl(url: String?, headers: HashMap<String, String>?) {
-                listener?.startPlayUrl(url ?: return, headers)
+            override fun startPlayUrl(gen: Int, url: String?, headers: HashMap<String, String>?) {
+                listener?.startPlayUrl(gen, url ?: return, headers)
             }
 
-            override fun onM3u8ProxyUrl(proxyUrl: String?, sourceUrl: String?) {
-                listener?.onM3u8ProxyUrl(proxyUrl ?: return, sourceUrl ?: return)
+            override fun onM3u8ProxyUrl(
+                gen: Int,
+                proxyUrl: String?,
+                sourceUrl: String?,
+                headers: HashMap<String, String>?,
+            ) {
+                listener?.onM3u8ProxyUrl(gen, proxyUrl ?: return, sourceUrl ?: return, headers)
             }
         })
     }
@@ -809,7 +814,11 @@ class ComposeVideoController @JvmOverloads constructor(
     }
 
     override fun playM3u8(url: String?, headers: HashMap<String, String>?) {
-        m3u8PurifyUseCase.playM3u8(url ?: return, headers)
+        m3u8PurifyUseCase.playM3u8(url ?: return, headers, -1)
+    }
+
+    override fun playM3u8(url: String?, headers: HashMap<String, String>?, gen: Int) {
+        m3u8PurifyUseCase.playM3u8(url ?: return, headers, gen)
     }
 
     override fun encodeUrl(url: String?): String = PlayerSwitchUseCase.encodeUrl(url)

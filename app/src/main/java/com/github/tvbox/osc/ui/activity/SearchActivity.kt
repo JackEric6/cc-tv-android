@@ -139,6 +139,7 @@ class SearchViewModel : ViewModel() {
         val state: ResultState,
         val videos: List<Movie.Video>,
         val arrivedAt: Int = Int.MAX_VALUE,
+        val sourceKeys: Set<String> = setOf(sourceKey),
     )
 
     val results = MutableStateFlow<List<SourceResult>>(emptyList())
@@ -190,6 +191,10 @@ class SearchViewModel : ViewModel() {
                 normalizedKey == "fhw88" || normalizedName.contains("鑫同") -> 8
                 normalizedKey == "cz4k" || normalizedName.contains("厂长") -> 9
                 normalizedKey == "fan_moli" || normalizedName.contains("茉莉") -> 10
+                normalizedKey == "fan_cheese" || normalizedKey == "奶酪"
+                    || normalizedName.contains("奶酪") -> 11
+                normalizedKey == "ikanbot" || normalizedName.contains("爱看") -> 12
+                normalizedKey == "zanpian" || normalizedName.contains("赞片") -> 13
                 else -> 100
             }
         }
@@ -198,14 +203,49 @@ class SearchViewModel : ViewModel() {
          * 只调整搜索结果的展示顺序，不改变实际发起搜索请求的源顺序。
          * 请求仍按配置顺序并发；展示时只按固定优先级分组，组内保留配置顺序。
          */
-        internal fun sortResultsForDisplay(results: List<SourceResult>): List<SourceResult> =
-            results.withIndex()
+        internal fun sortResultsForDisplay(results: List<SourceResult>): List<SourceResult> {
+            val sorted = results.withIndex()
                 .sortedWith(
                     compareBy<IndexedValue<SourceResult>> {
                         sourcePriority(it.value.sourceKey, it.value.sourceName)
                     }.thenBy { it.index },
                 )
                 .map { it.value }
+            val groups = LinkedHashMap<String, MutableList<SourceResult>>()
+            sorted.forEach { result ->
+                groups.getOrPut(displayGroupKey(result)) { mutableListOf() }.add(result)
+            }
+            return groups.values.map { group ->
+                if (group.size == 1) return@map group.first()
+                val first = group.first()
+                val sourceKeys = group.flatMapTo(LinkedHashSet()) { it.sourceKeys + it.sourceKey }
+                val videos = group.flatMap { it.videos }
+                    .distinctBy { videoDisplayIdentity(it) }
+                SourceResult(
+                    sourceKey = first.sourceKey,
+                    sourceName = "暴风",
+                    state = if (group.any { it.state == ResultState.Pending }) ResultState.Pending else ResultState.Done,
+                    videos = videos,
+                    arrivedAt = first.arrivedAt,
+                    sourceKeys = sourceKeys,
+                )
+            }
+        }
+
+        private fun displayGroupKey(result: SourceResult): String {
+            val key = result.sourceKey.trim().lowercase(java.util.Locale.ROOT)
+            val name = result.sourceName.trim()
+            return if (key == "bfzy" || key == "cms_baofeng" || name.contains("暴风")) {
+                "source:baofeng"
+            } else {
+                "source:$key"
+            }
+        }
+
+        private fun videoDisplayIdentity(video: Movie.Video): String {
+            val name = video.name.orEmpty().trim().lowercase(java.util.Locale.ROOT)
+            return if (name.isNotEmpty()) "$name#${video.year}" else "${video.sourceKey}#${video.id}"
+        }
 
         internal fun normalizeSearchPermits(configured: Int): Int = configured.coerceIn(1, 64)
 

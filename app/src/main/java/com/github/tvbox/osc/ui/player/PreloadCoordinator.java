@@ -210,7 +210,7 @@ public final class PreloadCoordinator {
             return;
         }
         if (url.contains(".m3u8")
-                && KV.get(HawkConfig.M3U8_PURIFY, false)
+                && KV.get(HawkConfig.M3U8_PURIFY, HawkConfig.M3U8_PURIFY_DEFAULT)
                 && !DefaultConfig.noAd(snapshot.playFlag)) {
             LOG.i("echo-preload-giveup: m3u8 purify on, url=" + url);
             gaveUp(snapshot);

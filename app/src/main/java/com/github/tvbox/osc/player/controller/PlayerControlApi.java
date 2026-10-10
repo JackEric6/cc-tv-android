@@ -82,6 +82,8 @@ public interface PlayerControlApi {
 
     void playM3u8(String url, HashMap<String, String> headers);
 
+    void playM3u8(String url, HashMap<String, String> headers, int gen);
+
     String encodeUrl(String url);
 
     String firstUrlByArray(String url);

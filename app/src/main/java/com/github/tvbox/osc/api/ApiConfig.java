@@ -87,6 +87,12 @@ public class ApiConfig {
     private String loadedLiveConfigUrl = "";
     /** APK 内置直播回退配置。仅包含在 2026-09-25 实测可取 HLS 清单和媒体分片的公开地址。 */
     private static final String BUNDLED_LIVE_CONFIG_NAME = "live_default.json";
+    private static final Set<String> REMOVED_DEFAULT_SOURCE_KEYS = new HashSet<>(Arrays.asList(
+            "beike", "yzzy", "qiumu", "sony",
+            "fan_guangying", "fan_libbo",
+            "cms_liangzi", "cms_feifan", "cms_haiwaikan",
+            "cms_suoni", "cms_kuaifan", "cms_leshi"
+    ));
     /** 直播设置「配置切换」组第 0 项的历史名称。默认直播不再跟随点播源。 */
     public static final String LIVE_FOLLOW_ITEM_NAME = "跟随点播源";
     private String danmaku = "";
@@ -757,6 +763,17 @@ public class ApiConfig {
                 || api.contains("native://fan_juquan");
     }
 
+    static void removeRetiredDefaultSources(JsonArray sites) {
+        if (sites == null) return;
+        for (int index = sites.size() - 1; index >= 0; index--) {
+            JsonElement site = sites.get(index);
+            if (site != null && site.isJsonObject()) {
+                String key = DefaultConfig.safeJsonString(site.getAsJsonObject(), "key", "");
+                if (REMOVED_DEFAULT_SOURCE_KEYS.contains(key)) sites.remove(index);
+            }
+        }
+    }
+
     private void parseJson(String apiUrl, String jsonStr) {
         resetConfigData();
         LOG.i("echo-apiurl:" + apiUrl);
@@ -969,13 +986,7 @@ public class ApiConfig {
             JsonArray sites = infoJson.has("sites") && infoJson.get("sites").isJsonArray()
                     ? infoJson.getAsJsonArray("sites") : new JsonArray();
             if (!infoJson.has("sites") || !infoJson.get("sites").isJsonArray()) infoJson.add("sites", sites);
-            for (int index = sites.size() - 1; index >= 0; index--) {
-                JsonElement site = sites.get(index);
-                if (site != null && site.isJsonObject()) {
-                    String key = DefaultConfig.safeJsonString(site.getAsJsonObject(), "key", "");
-                    if ("beike".equals(key) || "yzzy".equals(key)) sites.remove(index);
-                }
-            }
+            removeRetiredDefaultSources(sites);
             Set<String> existingKeys = new HashSet<>();
             for (JsonElement site : sites) {
                 if (site != null && site.isJsonObject()) {

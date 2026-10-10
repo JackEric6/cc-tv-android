@@ -46,13 +46,22 @@ public class M3u8 {
     private static final int MAX_FRAME_RATE_AD_BLOCK_SIZE = 12;
     private static final Map<Integer, Set<BigDecimal>> FRAME_RATE_FEATURES = prepareFrameRateFeatures();
 
-    public static int currentAdCount;
+    private static int currentAdCount;
 
     public static boolean isAd(String regex) {
         return regex.contains(TAG_DISCONTINUITY) || regex.contains(TAG_MEDIA_DURATION) || regex.contains(TAG_ENDLIST) || regex.contains(TAG_KEY) || regex.contains(TAG_CUE_OUT) || regex.contains(TAG_CUE_IN) || regex.contains(TAG_DATERANGE) || M3u8.isDouble(regex);
     }
 
-    public static String purify(String tsUrlPre, String m3u8content) {
+    public static synchronized String purify(String tsUrlPre, String m3u8content) {
+        return purifyInternal(tsUrlPre, m3u8content);
+    }
+
+    public static synchronized PurifyResult purifyWithResult(String tsUrlPre, String m3u8content) {
+        String content = purifyInternal(tsUrlPre, m3u8content);
+        return new PurifyResult(content, currentAdCount);
+    }
+
+    private static String purifyInternal(String tsUrlPre, String m3u8content) {
 //        LOG.i("echo-fixAdM3u8 m3u8content: " +m3u8content);
         long start = System.currentTimeMillis();
         currentAdCount = 0;
@@ -90,6 +99,24 @@ public class M3u8 {
         LOG.i("echo-fixAdM3u8 cost: " + cost + "ms, removed: " + currentAdCount + " segments");
 //        LOG.i("echo-fixAdM3u8 result: " + result );
         return result;
+    }
+
+    public static final class PurifyResult {
+        private final String content;
+        private final int removedSegments;
+
+        private PurifyResult(String content, int removedSegments) {
+            this.content = content;
+            this.removedSegments = removedSegments;
+        }
+
+        public String content() {
+            return content;
+        }
+
+        public int removedSegments() {
+            return removedSegments;
+        }
     }
 
     private static double maxPercent(HashMap<String, Integer> preUrlMap) {

@@ -93,6 +93,9 @@ public class PlaybackController {
     /** 净化后的 m3u8 代理地址与其原始地址(投屏时换回源地址) */
     private String m3u8ProxyUrl;
     private String m3u8SourceUrl;
+    private HashMap<String, String> m3u8SourceHeaders;
+    private boolean m3u8OriginalFallbackAttempted;
+    private String skipM3u8PurifyUrl;
 
     /** 换源/换线时"接着看"的进度(新键无历史时才写入) */
     private String inheritProgressKey;
@@ -317,9 +320,12 @@ public class PlaybackController {
         return !TextUtils.isEmpty(m3u8ProxyUrl) && url.equals(m3u8ProxyUrl);
     }
 
-    public void setM3u8Urls(String proxyUrl, String sourceUrl) {
+    public void setM3u8Urls(int gen, String proxyUrl, String sourceUrl, HashMap<String, String> headers) {
+        if (!resolver.isParseResultCurrent(gen)) return;
         this.m3u8ProxyUrl = proxyUrl;
         this.m3u8SourceUrl = sourceUrl;
+        this.m3u8SourceHeaders = headers == null ? null : new HashMap<>(headers);
+        this.m3u8OriginalFallbackAttempted = false;
     }
 
     @Nullable
@@ -330,6 +336,28 @@ public class PlaybackController {
     public void clearM3u8ProxyUrl() {
         m3u8ProxyUrl = null;
         m3u8SourceUrl = null;
+        m3u8SourceHeaders = null;
+        m3u8OriginalFallbackAttempted = false;
+        skipM3u8PurifyUrl = null;
+    }
+
+    private boolean retryOriginalM3u8Once() {
+        if (TextUtils.isEmpty(m3u8ProxyUrl) || TextUtils.isEmpty(m3u8SourceUrl)
+                || m3u8OriginalFallbackAttempted) return false;
+        String originalUrl = m3u8SourceUrl;
+        HashMap<String, String> originalHeaders = m3u8SourceHeaders == null
+                ? null : new HashMap<>(m3u8SourceHeaders);
+        m3u8OriginalFallbackAttempted = true;
+        m3u8ProxyUrl = null;
+        m3u8SourceUrl = null;
+        m3u8SourceHeaders = null;
+        skipM3u8PurifyUrl = originalUrl;
+        LOG.i("echo-m3u8-proxy failed, retry original playlist once");
+        stopParse();
+        initParseLoadFound();
+        if (view != null) view.releasePlayer();
+        playUrl(resolver.nextGen(), originalUrl, originalHeaders);
+        return true;
     }
 
     // ==================== 播放请求头 ====================
@@ -446,6 +474,7 @@ public class PlaybackController {
     private static final int MSG_DROP_SESSION_AFTER_COMPLETED = 103;
     private static final long RESOLVE_PLAY_URL_TIMEOUT_MS = 15 * 1000L;
     private static final long SWITCH_LINE_PLAY_TIMEOUT_MS = 20 * 1000L;
+    static final long M3U8_PURIFY_SWITCH_LINE_TIMEOUT_MS = 45 * 1000L;
 
     private final Handler timeoutHandler = new Handler(Looper.getMainLooper(), new Handler.Callback() {
         @Override
@@ -702,13 +731,17 @@ public class PlaybackController {
     }
 
     public void startSwitchLinePlayTimeout() {
+        startSwitchLinePlayTimeout(SWITCH_LINE_PLAY_TIMEOUT_MS);
+    }
+
+    private void startSwitchLinePlayTimeout(long timeoutMs) {
         if (!st.allowAutoSwitchLine) {
             cancelPlayTimeout();
             return;
         }
         cancelPlayTimeout();
-        LOG.i("echo-switchLinePlay start timeout");
-        timeoutHandler.sendEmptyMessageDelayed(MSG_SWITCH_LINE_PLAY_TIMEOUT, SWITCH_LINE_PLAY_TIMEOUT_MS);
+        LOG.i("echo-switchLinePlay start timeout=" + timeoutMs);
+        timeoutHandler.sendEmptyMessageDelayed(MSG_SWITCH_LINE_PLAY_TIMEOUT, timeoutMs);
     }
 
     public void cancelSwitchLinePlayTimeout() {
@@ -848,6 +881,7 @@ public class PlaybackController {
      * (手动重播/切内核/切解码/换解析)—— 用户的主动自救动作之后允许再兜一次底。
      */
     public boolean retryAfterStartedError() {
+        if (retryOriginalM3u8Once()) return true;
         if (st.hasRetriedAfterStart) return false;
         if (TextUtils.isEmpty(webPlayUrl)) return false;
         st.hasRetriedAfterStart = true;
@@ -873,6 +907,7 @@ public class PlaybackController {
      * @return true = 已发起重试;false = 无路可走(调用方负责提示与收尾)
      */
     public boolean autoRetry() {
+        if (retryOriginalM3u8Once()) return true;
         long currentTime = System.currentTimeMillis();
         if (currentTime - st.lastRetryTime > 60_000) {
             LOG.i("echo-reset-autoRetryCount");
@@ -1322,6 +1357,10 @@ public class PlaybackController {
         return resolver.isParseResultCurrent(gen);
     }
 
+    public int currentParseGeneration() {
+        return resolver.currentGen();
+    }
+
     public void stopLoadWebView(boolean destroy) {
         resolver.stopLoadWebView(destroy);
     }
@@ -1375,6 +1414,7 @@ public class PlaybackController {
         boolean reusePlayer = consumeReusePlayerOnSwitch();
         st.switchingPlayback = true;
         st.audioPlayback = false;
+        clearM3u8ProxyUrl();
         if (view != null) {
             view.onNewPlayStarted();
             view.clearArtwork();
@@ -1531,6 +1571,29 @@ public class PlaybackController {
                 || url.endsWith(".webm") || url.endsWith(".mov") || url.endsWith(".mpd");
     }
 
+    static boolean shouldPurifyM3u8(String url, boolean enabled, boolean noAd) {
+        return shouldPurifyM3u8(url, enabled, noAd, "");
+    }
+
+    static boolean shouldPurifyM3u8(String url, boolean enabled, boolean noAd, String sourceKey) {
+        if (!enabled || noAd || url == null) return false;
+        if ("zanpian".equalsIgnoreCase(sourceKey)) return false;
+        String normalized = url.toLowerCase(Locale.ROOT);
+        return !normalized.startsWith("http://127.0.0.1")
+                && !normalized.contains("url=")
+                && normalized.contains(".m3u8");
+    }
+
+    static long switchLineTimeoutForUrl(String url, boolean purifierEnabled, boolean noAd) {
+        return switchLineTimeoutForUrl(url, purifierEnabled, noAd, "");
+    }
+
+    static long switchLineTimeoutForUrl(String url, boolean purifierEnabled, boolean noAd, String sourceKey) {
+        return shouldPurifyM3u8(url, purifierEnabled, noAd, sourceKey)
+                ? M3U8_PURIFY_SWITCH_LINE_TIMEOUT_MS
+                : SWITCH_LINE_PLAY_TIMEOUT_MS;
+    }
+
     /**
      * 解析/嗅探产物入口:入口校验挡"回调已跑起来"的旧结果(此时若已切集,连 RefreshEvent 播放地址与
      * 换线超时都不该被改写);{@link #goPlayUrl} 里那道校验挡"回调 → UI 线程排队"期间的切集。
@@ -1542,46 +1605,54 @@ public class PlaybackController {
             LOG.i("echo-ignore stale parse result");
             return;
         }
-        playUrlGeneration = gen;
-        playUrl(url, headers);
+        routePlayUrl(gen, url, headers);
     }
 
     /** 取流结果入口:先按 M3U8 去广告规则分流,再交给 goPlayUrl 起播 */
     public void playUrl(String url, HashMap<String, String> headers) {
-        startSwitchLinePlayTimeout();
+        routePlayUrl(resolver.currentGen(), url, headers);
+    }
+
+    private void routePlayUrl(int gen, String url, HashMap<String, String> headers) {
+        if (!resolver.isParseResultCurrent(gen) || TextUtils.isEmpty(url)) return;
         url = attachProxySiteKey(url);
+        boolean purifierEnabled = KV.get(HawkConfig.M3U8_PURIFY, HawkConfig.M3U8_PURIFY_DEFAULT);
+        boolean noAd = vod() != null && DefaultConfig.noAd(vod().playFlag);
+        boolean skipPurify = TextUtils.equals(skipM3u8PurifyUrl, url);
+        if (skipPurify) skipM3u8PurifyUrl = null;
+        boolean purifyM3u8 = !skipPurify && shouldPurifyM3u8(
+                url,
+                purifierEnabled,
+                noAd,
+                sourceKey()
+        );
+        startSwitchLinePlayTimeout(switchLineTimeoutForUrl(url, purifierEnabled, noAd, sourceKey()));
         if (!url.startsWith("data:application")) {
             EventBus.getDefault().post(new RefreshEvent(RefreshEvent.TYPE_REFRESH, url));//更新播放地址
         }
-        if (!KV.get(HawkConfig.M3U8_PURIFY, false)) {
-            goPlayUrl(url, headers);
-            return;
-        }
-        if (url.startsWith("http://127.0.0.1") || !url.contains(".m3u8")) {
-            goPlayUrl(url, headers);
-            return;
-        }
-        if (vod() != null && DefaultConfig.noAd(vod().playFlag)) {
-            goPlayUrl(url, headers);
+        if (!purifyM3u8) {
+            goPlayUrl(gen, url, headers);
             return;
         }
         LOG.i("echo-playM3u8:" + url);
         // 净化链是唯一不走 goPlayUrl 的起播路径(净化完成回调 startPlayUrl),起播前由页面桥校验代际
-        if (view != null) view.playM3u8(url, headers, playUrlGeneration);
         // 净化期间先记下起点地址,否则净化源上 autoRetry/retryAfterStartedError 找不到可重播地址
         if (isFirstAttempt()) setWebPlayUrl(url);
+        if (view != null) view.playM3u8(url, headers, gen);
     }
 
     /** 真正起播一个可播地址(外部播放器 / dash 强制 EXO / 复用播放器换集都在这里分流) */
     public void goPlayUrl(String url, HashMap<String, String> headers) {
+        goPlayUrl(resolver.currentGen(), url, headers);
+    }
+
+    public void goPlayUrl(int gen, String url, HashMap<String, String> headers) {
         LOG.i("echo-goPlayUrl:" + url);
         if (TextUtils.isEmpty(url)) {
             handleResolvePlayUrlFailed("获取播放地址为空");
             return;
         }
         if (view == null || !view.isPageAlive()) return;
-        // 调用方与解析回调同帧或同线程 ⇒ 本地址归属当前轮,在排队前签发代际(见 playUrlGeneration 注释)
-        playUrlGeneration = resolver.currentGen();
         final String finalUrl = url;
         view.runOnUi(new Runnable() {
             @Override
@@ -1591,7 +1662,7 @@ public class PlaybackController {
                     LOG.i("echo-ignore goPlayUrl while source switching");
                     return;
                 }
-                if (playUrlGeneration != resolver.currentGen()) {
+                if (!resolver.isParseResultCurrent(gen)) {
                     // 上一轮的产物(排队期已切集/换线/换源/重播)⇒ 丢弃,并撤掉旧链超时(否则到期会触发一次换线)
                     LOG.i("echo-ignore goPlayUrl of stale parse result");
                     resolver.cancelParseTimeout();

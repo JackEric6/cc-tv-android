@@ -292,7 +292,7 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
 
         @Override
         public void playM3u8(String url, HashMap<String, String> headers) {
-            if (mController != null) mController.playM3u8(url, headers);
+            if (mController != null) mController.playM3u8(url, headers, scheduler.currentParseGeneration());
         }
 
         @Override
@@ -301,7 +301,7 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
                 LOG.i("echo-ignore stale m3u8 result");
                 return;
             }
-            playM3u8(url, headers);
+            if (mController != null) mController.playM3u8(url, headers, gen);
         }
 
         @Override
@@ -686,14 +686,15 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
                 startDanmuIfReady();
             }
             @Override
-            public void startPlayUrl(String url, HashMap<String, String> headers) {
+            public void startPlayUrl(int gen, String url, HashMap<String, String> headers) {
+                if (!scheduler.isParseResultCurrent(gen)) return;
                 if (!TextUtils.isEmpty(scheduler.m3u8SourceUrl()) && !scheduler.isM3u8ProxyUrl(url)) scheduler.clearM3u8ProxyUrl();
-                scheduler.goPlayUrl(url, headers);
+                scheduler.goPlayUrl(gen, url, headers);
             }
 
             @Override
-            public void onM3u8ProxyUrl(String proxyUrl, String sourceUrl) {
-                scheduler.setM3u8Urls(proxyUrl, sourceUrl);
+            public void onM3u8ProxyUrl(int gen, String proxyUrl, String sourceUrl, HashMap<String, String> headers) {
+                scheduler.setM3u8Urls(gen, proxyUrl, sourceUrl, headers);
             }
 
             @Override

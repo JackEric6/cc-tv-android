@@ -24,14 +24,14 @@ class SearchConcurrencyTest {
     @Test
     fun searchSourcesUseRequestedPriorityOrder() {
         val keys = listOf(
-            "other", "fan_moli", "cz4k", "fhw88", "360zy", "lzi", "dyttzy",
-            "bfzy", "ffzy", "xgzy", "fan_jianpian", "jianpian", "guazi",
+            "other", "zanpian", "ikanbot", "fan_cheese", "fan_moli", "cz4k", "fhw88",
+            "360zy", "lzi", "dyttzy", "bfzy", "ffzy", "xgzy", "fan_jianpian", "jianpian", "guazi",
         )
         val ordered = keys.sortedWith(compareBy { SearchViewModel.sourcePriority(it, it) })
         assertEquals(
             listOf(
                 "guazi", "fan_jianpian", "jianpian", "xgzy", "ffzy", "bfzy", "dyttzy",
-                "lzi", "360zy", "fhw88", "cz4k", "fan_moli", "other",
+                "lzi", "360zy", "fhw88", "cz4k", "fan_moli", "fan_cheese", "ikanbot", "zanpian", "other",
             ),
             ordered,
         )
@@ -40,7 +40,40 @@ class SearchConcurrencyTest {
         assertEquals(2, SearchViewModel.sourcePriority("xgzy", "西瓜"))
         assertEquals(4, SearchViewModel.sourcePriority("cms_baofeng", "暴风┃本地"))
         assertEquals(7, SearchViewModel.sourcePriority("360zy", "360"))
+        assertEquals(11, SearchViewModel.sourcePriority("fan_cheese", "奶酪"))
+        assertEquals(12, SearchViewModel.sourcePriority("ikanbot", "爱看"))
+        assertEquals(13, SearchViewModel.sourcePriority("zanpian", "赞片"))
         assertEquals(100, SearchViewModel.sourcePriority("unlisted", "其他影视源"))
+    }
+
+    @Test
+    fun duplicateBaofengAliasesShareOneDisplaySourceAndKeepTheirVideos() {
+        fun video(name: String, key: String) = Movie.Video().apply {
+            this.name = name
+            sourceKey = key
+        }
+
+        val displayed = SearchViewModel.sortResultsForDisplay(
+            listOf(
+                SearchViewModel.SourceResult(
+                    "bfzy", "暴风", SearchViewModel.ResultState.Done,
+                    listOf(video("抓特务", "bfzy"), video("共同影片", "bfzy")),
+                ),
+                SearchViewModel.SourceResult(
+                    "cms_baofeng", "暴风", SearchViewModel.ResultState.Done,
+                    listOf(video("共同影片", "cms_baofeng"), video("另一部", "cms_baofeng")),
+                ),
+            ),
+        )
+
+        assertEquals(1, displayed.size)
+        assertEquals("暴风", displayed.single().sourceName)
+        assertEquals(setOf("bfzy", "cms_baofeng"), displayed.single().sourceKeys)
+        assertEquals(listOf("抓特务", "共同影片", "另一部"), displayed.single().videos.map { it.name })
+        assertEquals(
+            listOf("bfzy", "bfzy", "cms_baofeng"),
+            displayed.single().videos.map { it.sourceKey },
+        )
     }
 
     @Test
@@ -57,9 +90,9 @@ class SearchConcurrencyTest {
             listOf(
                 result("other-b", 1),
                 result("xgzy", 6),
-                result("guazi-second", 2).copy(sourceKey = "guazi", sourceName = "瓜子二"),
+                result("guazi-alt", 2).copy(sourceName = "瓜子二"),
                 result("other-a", 3),
-                result("guazi-first", 5).copy(sourceKey = "guazi", sourceName = "瓜子一"),
+                result("guazi", 5).copy(sourceName = "瓜子一"),
                 result("jianpian", 4),
             ),
         )

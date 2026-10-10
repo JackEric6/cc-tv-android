@@ -6,11 +6,11 @@ val requestedApplicationIdSuffix = (project.findProperty("APP_ID_SUFFIX") as Str
     ?: ""
 val requestedVersionCode = (project.findProperty("APP_VERSION_CODE") as String?)
     ?.toIntOrNull()
-    ?: 43
+    ?: 45
 val requestedVersionName = (project.findProperty("APP_VERSION_NAME") as String?)
     ?.trim()
     ?.takeIf { it.isNotEmpty() }
-    ?: "1.0.40-xgzy"
+    ?: "1.0.42-xgzy"
 
 plugins {
     alias(libs.plugins.android.application)

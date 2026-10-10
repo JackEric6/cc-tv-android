@@ -38,29 +38,25 @@ public class SearchHelper {
                 // Built-in sources with verified search adapters.
                 "ikanbot", "fhw88", "guazi",
                 // Web CMS sources exposed by the bundled source list.
-                "qiumu", "cechi", "zanpian", "cz4k",
+                "cechi", "zanpian", "cz4k",
                 // Sources reimplemented as native adapters.
                 "fan_nomi", "fan_moli", "fan_cheese", "fan_jianpian",
-                "fan_guangying", "fan_libbo",
                 // CMS endpoints are called through the app's local normalizer.
-                "cms_baidu", "cms_liangzi", "cms_feifan", "cms_haiwaikan",
-                "cms_baofeng", "cms_suoni", "cms_kuaifan", "cms_leshi",
+                "cms_baidu", "cms_baofeng",
                 // 最新配置直接使用中文 key；搜索页也必须允许这些 key 进入并发搜索。
                 "糯米", "茉莉", "视界", "奶酪", "荐片"
         };
         for (String key : verified) SEARCH_VERIFIED_SOURCE_KEYS.add(key);
 
         String[] bundled = {
-                "ikanbot", "fhw88", "qiumu", "cechi", "zanpian", "cz4k",
+                "ikanbot", "fhw88", "cechi", "zanpian", "cz4k",
                 "fan_nomi", "fan_moli", "fan_cheese", "fan_jianpian",
-                "fan_guangying", "fan_libbo",
-                "cms_baidu", "cms_liangzi", "cms_feifan", "cms_haiwaikan",
-                "cms_baofeng", "cms_suoni", "cms_kuaifan", "cms_leshi"
+                "cms_baidu", "cms_baofeng"
         };
         for (String key : bundled) BUNDLED_SEARCH_SOURCE_KEYS.add(key);
 
         String[] webCms = {
-                "qiumu", "cechi", "zanpian", "cz4k"
+                "cechi", "zanpian", "cz4k"
         };
         for (String key : webCms) WEB_CMS_SOURCE_KEYS.add(key);
     }

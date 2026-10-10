@@ -66,7 +66,9 @@ public class SearchHelperTest {
         assertTrue(SearchHelper.isSearchVerified("ikanbot"));
         assertTrue(SearchHelper.isSearchVerified("fhw88"));
         assertFalse(SearchHelper.isSearchVerified("ikunzy"));
-        assertTrue(SearchHelper.isSearchVerified("qiumu"));
+        assertTrue(SearchHelper.isSearchVerified("lzi"));
+        assertTrue(SearchHelper.isSearchVerified("ffzy"));
+        assertFalse(SearchHelper.isSearchVerified("qiumu"));
         assertTrue(SearchHelper.isSearchVerified("cechi"));
         assertTrue(SearchHelper.isSearchVerified("zanpian"));
         assertTrue(SearchHelper.isSearchVerified("cz4k"));
@@ -74,16 +76,16 @@ public class SearchHelperTest {
         assertTrue(SearchHelper.isSearchVerified("fan_moli"));
         assertTrue(SearchHelper.isSearchVerified("fan_cheese"));
         assertTrue(SearchHelper.isSearchVerified("fan_jianpian"));
-        assertTrue(SearchHelper.isSearchVerified("fan_guangying"));
-        assertTrue(SearchHelper.isSearchVerified("fan_libbo"));
+        assertFalse(SearchHelper.isSearchVerified("fan_guangying"));
+        assertFalse(SearchHelper.isSearchVerified("fan_libbo"));
         assertTrue(SearchHelper.isSearchVerified("cms_baidu"));
-        assertTrue(SearchHelper.isSearchVerified("cms_liangzi"));
-        assertTrue(SearchHelper.isSearchVerified("cms_feifan"));
-        assertTrue(SearchHelper.isSearchVerified("cms_haiwaikan"));
+        assertFalse(SearchHelper.isSearchVerified("cms_liangzi"));
+        assertFalse(SearchHelper.isSearchVerified("cms_feifan"));
+        assertFalse(SearchHelper.isSearchVerified("cms_haiwaikan"));
         assertTrue(SearchHelper.isSearchVerified("cms_baofeng"));
-        assertTrue(SearchHelper.isSearchVerified("cms_suoni"));
-        assertTrue(SearchHelper.isSearchVerified("cms_kuaifan"));
-        assertTrue(SearchHelper.isSearchVerified("cms_leshi"));
+        assertFalse(SearchHelper.isSearchVerified("cms_suoni"));
+        assertFalse(SearchHelper.isSearchVerified("cms_kuaifan"));
+        assertFalse(SearchHelper.isSearchVerified("cms_leshi"));
         assertFalse(SearchHelper.isSearchVerified("fan_bit"));
         assertFalse(SearchHelper.isSearchVerified("fan_hot"));
         assertFalse(SearchHelper.isSearchVerified("fan_juquan"));
@@ -103,9 +105,11 @@ public class SearchHelperTest {
 
     @Test
     public void bundledSourcesAreAddedToAnExistingSearchSelection() {
-        HashMap<String, String> selected = checked("xgzy", "qiumu", "beike");
+        HashMap<String, String> selected = checked(
+                "xgzy", "lzi", "ffzy", "qiumu", "beike",
+                "fan_guangying", "cms_feifan");
         HashMap<String, String> merged = SearchHelper.mergeBundledSearchSources(
-                selected, keys("xgzy", "qiumu", "beike", "cechi", "zanpian",
+                selected, keys("xgzy", "lzi", "ffzy", "qiumu", "beike", "cechi", "zanpian",
                 "meitan", "cz4k", "fan_bit", "fan_nomi", "fan_hot",
                         "fan_moli", "fan_cheese", "fan_juquan", "fan_jianpian",
                         "fan_guangying", "fan_libbo", "cms_baidu", "cms_liangzi",
@@ -114,7 +118,9 @@ public class SearchHelperTest {
                         "unknown"));
 
         assertTrue(merged.containsKey("xgzy"));
-        assertTrue(merged.containsKey("qiumu"));
+        assertTrue(merged.containsKey("lzi"));
+        assertTrue(merged.containsKey("ffzy"));
+        assertFalse(merged.containsKey("qiumu"));
         assertFalse(merged.containsKey("beike"));
         assertTrue(merged.containsKey("cechi"));
         assertTrue(merged.containsKey("zanpian"));
@@ -123,16 +129,16 @@ public class SearchHelperTest {
         assertTrue(merged.containsKey("fan_moli"));
         assertTrue(merged.containsKey("fan_cheese"));
         assertTrue(merged.containsKey("fan_jianpian"));
-        assertTrue(merged.containsKey("fan_guangying"));
-        assertTrue(merged.containsKey("fan_libbo"));
+        assertFalse(merged.containsKey("fan_guangying"));
+        assertFalse(merged.containsKey("fan_libbo"));
         assertTrue(merged.containsKey("cms_baidu"));
-        assertTrue(merged.containsKey("cms_liangzi"));
-        assertTrue(merged.containsKey("cms_feifan"));
-        assertTrue(merged.containsKey("cms_haiwaikan"));
+        assertFalse(merged.containsKey("cms_liangzi"));
+        assertFalse(merged.containsKey("cms_feifan"));
+        assertFalse(merged.containsKey("cms_haiwaikan"));
         assertTrue(merged.containsKey("cms_baofeng"));
-        assertTrue(merged.containsKey("cms_suoni"));
-        assertTrue(merged.containsKey("cms_kuaifan"));
-        assertTrue(merged.containsKey("cms_leshi"));
+        assertFalse(merged.containsKey("cms_suoni"));
+        assertFalse(merged.containsKey("cms_kuaifan"));
+        assertFalse(merged.containsKey("cms_leshi"));
         assertFalse(merged.containsKey("fan_bit"));
         assertFalse(merged.containsKey("fan_hot"));
         assertFalse(merged.containsKey("fan_juquan"));

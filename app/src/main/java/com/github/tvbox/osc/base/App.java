@@ -83,6 +83,9 @@ public class App extends Application {
         }
         KV.put(HawkConfig.DEFAULT_API_MIGRATION, true);
         KV.put(HawkConfig.PLAYER_IS_LIVE, false);
+        if (!KV.contains(HawkConfig.M3U8_PURIFY)) {
+            KV.put(HawkConfig.M3U8_PURIFY, HawkConfig.M3U8_PURIFY_DEFAULT);
+        }
         if (!KV.contains(HawkConfig.IJK_CODEC)) {
             KV.put(HawkConfig.IJK_CODEC, HawkConfig.DEFAULT_DECODE_MODE);
         }

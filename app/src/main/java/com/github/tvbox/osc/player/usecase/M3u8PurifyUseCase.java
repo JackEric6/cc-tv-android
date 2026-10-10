@@ -24,9 +24,9 @@ import java.util.Map;
 public final class M3u8PurifyUseCase {
 
     public interface Callback {
-        void startPlayUrl(String url, HashMap<String, String> headers);
+        void startPlayUrl(int gen, String url, HashMap<String, String> headers);
 
-        void onM3u8ProxyUrl(String proxyUrl, String sourceUrl);
+        void onM3u8ProxyUrl(int gen, String proxyUrl, String sourceUrl, HashMap<String, String> headers);
     }
 
     private final Callback callback;
@@ -35,9 +35,9 @@ public final class M3u8PurifyUseCase {
         this.callback = callback;
     }
 
-    public void playM3u8(final String url, final HashMap<String, String> headers) {
+    public void playM3u8(final String url, final HashMap<String, String> headers, final int gen) {
         if (url.contains("url=")) {
-            callback.startPlayUrl(url, headers);
+            callback.startPlayUrl(gen, url, headers);
             return;
         }
         OkGo.getInstance().cancelTag("m3u8-1");
@@ -54,17 +54,17 @@ public final class M3u8PurifyUseCase {
                 .execute(new AbsCallback<String>() {
                     @Override
                     public void onSuccess(Response<String> response) {
-                        String content = response.body();
-                        if (!content.startsWith("#EXTM3U")) {
-                            callback.startPlayUrl(url, headers);
+                        String content = normalizeM3u8Content(response.body());
+                        if (content == null) {
+                            callback.startPlayUrl(gen, url, headers);
                             return;
                         }
                         String forwardUrl = extractForwardUrl(url, content);
                         if (forwardUrl.isEmpty()) {
                             LOG.i("echo-m3u81-to-play");
-                            processM3u8Content(url, content, headers);
+                            processM3u8Content(url, content, headers, gen);
                         } else {
-                            fetchAndProcessForwardUrl(forwardUrl, headers, okGoHeaders, url);
+                            fetchAndProcessForwardUrl(forwardUrl, headers, okGoHeaders, url, gen);
                         }
                     }
 
@@ -77,7 +77,7 @@ public final class M3u8PurifyUseCase {
                     public void onError(Response<String> response) {
                         super.onError(response);
                         LOG.e("echo-m3u8请求错误1: " + response.getException());
-                        callback.startPlayUrl(url, headers);
+                        callback.startPlayUrl(gen, url, headers);
                     }
                 });
     }
@@ -103,36 +103,58 @@ public final class M3u8PurifyUseCase {
     }
 
     private boolean isValidM3u8Line(String line) {
-        return !line.startsWith("#") && (line.endsWith(".m3u8") || line.contains(".m3u8?"));
+        String normalized = line.toLowerCase(java.util.Locale.ROOT);
+        return !normalized.startsWith("#")
+                && (normalized.endsWith(".m3u8") || normalized.contains(".m3u8?"));
     }
 
-    private void processM3u8Content(String url, String content, HashMap<String, String> headers) {
+    private String normalizeM3u8Content(String content) {
+        if (content == null) return null;
+        if (content.startsWith("\ufeff")) content = content.substring(1);
+        int start = 0;
+        while (start < content.length() && Character.isWhitespace(content.charAt(start))) start++;
+        if (start > 0) content = content.substring(start);
+        return content.startsWith("#EXTM3U") ? content : null;
+    }
+
+    private void processM3u8Content(String url, String content, HashMap<String, String> headers, int gen) {
         String basePath = getBasePath(url);
-        String purified = M3u8.purify(basePath, content);
+        M3u8.PurifyResult result;
+        try {
+            result = M3u8.purifyWithResult(basePath, content);
+        } catch (Throwable error) {
+            LOG.e("echo-m3u8内容过滤失败，回退原地址: " + error.getMessage());
+            callback.startPlayUrl(gen, url, headers);
+            return;
+        }
         // 2026-09-13:只在真正走代理时才写入内容槽 —— 无广告(走直链)的集不写,
         // 避免把在播集的槽位冲掉;proxyUrl 带本次生成的键(?k=),服务端按键取内容
-        if (purified == null || M3u8.currentAdCount == 0) {
+        if (result.content() == null || result.removedSegments() == 0) {
             LOG.i("echo-m3u8内容解析：未检测到广告");
-            callback.startPlayUrl(url, headers);
+            callback.startPlayUrl(gen, url, headers);
         } else {
-            String key = RemoteServer.putM3u8Content(purified);
+            String key = RemoteServer.putM3u8Content(result.content());
             String proxyUrl = ControlManager.get().getAddress(true) + "proxyM3u8?k=" + key;
-            callback.onM3u8ProxyUrl(proxyUrl, url);
-            callback.startPlayUrl(proxyUrl, headers);
+            callback.onM3u8ProxyUrl(gen, proxyUrl, url, headers);
+            callback.startPlayUrl(gen, proxyUrl, headers);
         }
     }
 
     private void fetchAndProcessForwardUrl(final String forwardUrl, final HashMap<String, String> headers,
-                                           HttpHeaders okGoHeaders, final String fallbackUrl) {
+                                           HttpHeaders okGoHeaders, final String fallbackUrl, final int gen) {
         OkGo.<String>get(forwardUrl)
                 .tag("m3u8-2")
                 .headers(okGoHeaders)
                 .execute(new AbsCallback<String>() {
                     @Override
                     public void onSuccess(Response<String> response) {
-                        String content = response.body();
+                        String content = normalizeM3u8Content(response.body());
                         LOG.i("echo-m3u82-to-play");
-                        processM3u8Content(forwardUrl, content, headers);
+                        if (content == null) {
+                            callback.startPlayUrl(gen, fallbackUrl, headers);
+                            return;
+                        }
+                        processM3u8Content(forwardUrl, content, headers, gen);
                     }
 
                     @Override
@@ -144,7 +166,7 @@ public final class M3u8PurifyUseCase {
                     public void onError(Response<String> response) {
                         super.onError(response);
                         LOG.e("echo-重定向 m3u8 请求错误: " + response.getException());
-                        callback.startPlayUrl(fallbackUrl, headers);
+                        callback.startPlayUrl(gen, fallbackUrl, headers);
                     }
                 });
     }
