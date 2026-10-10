@@ -26,14 +26,27 @@ class YspLiveChannelCatalogTest {
         groups.forEach { group ->
             channels(group).forEach { element ->
                 val channel = element.asJsonObject
-                val ref = channel.getAsJsonArray("urls")[0].asString.substringBefore('$')
-                assertTrue(ref.startsWith("ysp://"))
-                assertTrue("duplicate reference: $ref", refs.add(ref))
-                assertNotNull(YspLiveChannelCatalog.find(ref.removePrefix("ysp://")))
+                val urls = channel.getAsJsonArray("urls")
+                assertEquals(2, urls.size())
+                urls.forEach { source ->
+                    val ref = source.asString.substringBefore('$')
+                    assertTrue(ref.startsWith("ysp://"))
+                    assertTrue("duplicate reference: $ref", refs.add(ref))
+                    val channelId = ref.removePrefix("ysp://").substringBefore('?')
+                    assertNotNull(YspLiveChannelCatalog.find(channelId))
+                    assertTrue(ref.contains("quality="))
+                }
                 assertTrue(channel.getAsJsonObject("header").has("Referer"))
             }
         }
-        assertEquals(62, refs.size)
+        assertEquals(124, refs.size)
+    }
+
+    @Test
+    fun yspQualityReferenceSelectsRequestedDefinitionAndRejectsUnknownValues() {
+        assertEquals("shd", YspLiveResolver.qualityForSource("ysp://cctv1?quality=shd", "fhd"))
+        assertEquals("fhd", YspLiveResolver.qualityForSource("ysp://cctv1?quality=fhd", "shd"))
+        assertEquals("fhd", YspLiveResolver.qualityForSource("ysp://cctv1?quality=bad", "fhd"))
     }
 
     @Test

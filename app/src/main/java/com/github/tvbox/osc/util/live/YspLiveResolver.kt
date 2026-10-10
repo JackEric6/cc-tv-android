@@ -66,12 +66,21 @@ internal object YspLiveResolver {
         val channelId = uri.host ?: return null
         val channel = YspLiveChannelCatalog.find(channelId) ?: return null
         repeat(2) {
-            val request = runCatching { buildRequest(channel) }.getOrNull() ?: return null
+            val requestChannel = channel.copy(definition = qualityForSource(source, channel.definition))
+            val request = runCatching { buildRequest(requestChannel) }.getOrNull() ?: return null
             val body = executeRequest(request) ?: return@repeat
             val urls = parsePlayUrls(body)
             if (urls.isNotEmpty()) return urls
         }
         return null
+    }
+
+    internal fun qualityForSource(source: String, defaultQuality: String): String {
+        val query = runCatching { URI(source).rawQuery }.getOrNull().orEmpty()
+        val quality = query.split('&')
+            .firstOrNull { it.startsWith("quality=") }
+            ?.substringAfter('=')
+        return quality?.takeIf { it == "fhd" || it == "shd" } ?: defaultQuality
     }
 
     private fun buildRequest(channel: YspLiveChannel): Request {

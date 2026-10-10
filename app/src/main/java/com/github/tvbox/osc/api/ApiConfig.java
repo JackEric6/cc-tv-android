@@ -1144,7 +1144,6 @@ public class ApiConfig {
         initLiveSettings();
         KV.put(HawkConfig.LIVE_GROUP_LIST, new JsonArray());
         KV.put(HawkConfig.EPG_URL, ConfigParser.extractLiveTextEpg(content));
-        KV.put(HawkConfig.LIVE_PLAY_TYPE, KV.get(HawkConfig.PLAY_TYPE, 2));
         KV.put(HawkConfig.LIVE_WEB_HEADER, null);
         JsonArray livesArray = TxtSubscribe.parseToJsonArray(content);
         loadLives(livesArray);
@@ -1165,7 +1164,6 @@ public class ApiConfig {
                 spiderLoader.resetCurrentLiveSpider();
                 KV.put(HawkConfig.LIVE_GROUP_LIST, new JsonArray());
                 KV.put(HawkConfig.EPG_URL, DefaultConfig.safeJsonString(infoJson, "epg", ""));
-                KV.put(HawkConfig.LIVE_PLAY_TYPE, KV.get(HawkConfig.PLAY_TYPE, 2));
                 KV.put(HawkConfig.LIVE_WEB_HEADER, null);
                 loadLives(lives_groups);
             } else {
@@ -1471,13 +1469,6 @@ public class ApiConfig {
                 KV.put(HawkConfig.EPG_URL,epg);
             }else {
                 KV.put(HawkConfig.EPG_URL,"");
-            }
-            //直播播放器类型
-            if(livesOBJ.has("playerType")){
-                String livePlayType =livesOBJ.get("playerType").getAsString();
-                KV.put(HawkConfig.LIVE_PLAY_TYPE,livePlayType);
-            }else {
-                KV.put(HawkConfig.LIVE_PLAY_TYPE,KV.get(HawkConfig.PLAY_TYPE, 2));
             }
             //设置UA
             if(livesOBJ.has("timeout")){

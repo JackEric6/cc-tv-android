@@ -18,7 +18,7 @@ public class LivePlayerManager {
 
     public void init(VideoView videoView) {
         try {
-            defaultPlayerConfig.put("pl", KV.get(HawkConfig.LIVE_PLAY_TYPE, KV.get(HawkConfig.PLAY_TYPE, 2)));
+            defaultPlayerConfig.put("pl", KV.get(HawkConfig.LIVE_PLAY_TYPE, 2));
             if (defaultPlayerConfig.optInt("pl", 2) == 0) {
                 defaultPlayerConfig.put("pl", 2);
             }

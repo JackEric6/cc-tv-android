@@ -46,6 +46,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import xyz.doikki.videoplayer.exo.ExoMediaSourceHelper
@@ -471,7 +473,12 @@ class LivePlayActivity : BaseActivity() {
         return true
     }
 
-    private fun requestAndStartChannel(item: LiveChannelItem, videoView: MyVideoView, reusePlayer: Boolean) {
+    private fun requestAndStartChannel(
+        item: LiveChannelItem,
+        videoView: MyVideoView,
+        reusePlayer: Boolean,
+        attemptedYspSources: Set<String> = emptySet(),
+    ) {
         liveResolveJob?.cancel()
         val requestId = ++livePlaybackRequestId
         val source = item.url
@@ -494,32 +501,53 @@ class LivePlayActivity : BaseActivity() {
             }
             if (requestId != livePlaybackRequestId || isFinishing || isDestroyed) return@launch
             if (liveUrl.isNullOrBlank()) {
+                if (source.startsWith("ysp://") && attemptedYspSources.size + 1 < item.sourceNum) {
+                    currentLiveChangeSourceTimes++
+                    item.nextSource()
+                    requestAndStartChannel(
+                        item,
+                        videoView,
+                        reusePlayer = false,
+                        attemptedYspSources = attemptedYspSources + source,
+                    )
+                    return@launch
+                }
                 hideSwitchChannelSnapshot()
                 Toast.makeText(this@LivePlayActivity, "频道地址获取失败，请稍后重试", Toast.LENGTH_SHORT).show()
                 return@launch
             }
             currentYspSource = source
             startResolvedChannel(videoView, liveUrl, reusePlayer)
-            prefetchNextYspChannel(source)
+            prefetchAdjacentYspChannels(source)
         }
     }
 
-    private fun prefetchNextYspChannel(currentSource: String) {
+    private fun prefetchAdjacentYspChannels(currentSource: String) {
         if (!currentSource.startsWith("ysp://")) return
-        val next = getNextChannel(1)
-        val nextItem = getLiveChannels(next[0])?.getOrNull(next[1]) ?: return
-        val nextSource = nextItem.url
-        if (!nextSource.startsWith("ysp://") || nextSource == currentSource) return
+        val sources = linkedSetOf<String>()
+        for (direction in listOf(-1, 1)) {
+            val next = getNextChannel(direction)
+            val adjacentItem = getLiveChannels(next[0])?.getOrNull(next[1]) ?: continue
+            val adjacentSource = adjacentItem.url
+            if (adjacentSource.startsWith("ysp://") && adjacentSource != currentSource) {
+                sources.add(adjacentSource)
+            }
+        }
+        if (sources.isEmpty()) return
 
         livePrefetchJob?.cancel()
         livePrefetchJob = liveResolveScope.launch(Dispatchers.IO) {
-            try {
-                YspLiveResolver.prefetch(nextSource)
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Throwable) {
-                LOG.d(TAG, "央视频道预解析失败: ${error.message}")
-            }
+            sources.map { source ->
+                async {
+                    try {
+                        YspLiveResolver.prefetch(source)
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Throwable) {
+                        LOG.d(TAG, "央视频道预解析失败: ${error.message}")
+                    }
+                }
+            }.awaitAll()
         }
     }
 

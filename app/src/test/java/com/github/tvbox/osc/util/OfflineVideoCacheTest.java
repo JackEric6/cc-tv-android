@@ -192,16 +192,19 @@ public class OfflineVideoCacheTest {
     }
 
     @Test
-    public void estimatedTotalIsSmoothedAndNeverBelowObservedOutput() {
-        assertEquals(125_000_000L,
-                OfflineVideoCache.smoothEstimatedTotalBytes(100_000_000L,
-                        200_000_000L, 0L, 0.25));
+    public void estimatedTotalLocksAtFirstSampleAndNeverFallsBelowObservedOutput() {
+        assertEquals(100_000_000L,
+                OfflineVideoCache.lockEstimatedTotalBytes(100_000_000L,
+                        200_000_000L, 0L));
         assertEquals(150_000_000L,
-                OfflineVideoCache.smoothEstimatedTotalBytes(100_000_000L,
-                        200_000_000L, 150_000_000L, 0.25));
+                OfflineVideoCache.lockEstimatedTotalBytes(100_000_000L,
+                        200_000_000L, 150_000_000L));
         assertEquals(200_000_000L,
-                OfflineVideoCache.smoothEstimatedTotalBytes(-1L,
-                        200_000_000L, 0L, 0.25));
+                OfflineVideoCache.lockEstimatedTotalBytes(-1L,
+                        200_000_000L, 0L));
+        assertEquals(-1L,
+                OfflineVideoCache.lockEstimatedTotalBytes(-1L,
+                        -1L, 0L));
     }
 
     @Test

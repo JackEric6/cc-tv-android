@@ -1455,9 +1455,8 @@ public final class OfflineVideoCache {
             task.progressPercent = Math.max(task.progressPercent, safePercent);
             if (task.totalBytes <= 0L && candidateTotal > 0L
                     && completedDurationMs >= MIN_DURATION_ESTIMATE_SAMPLE_MS) {
-                double confidence = Math.min(0.7, 0.2 + completedDurationMs / 600_000.0 * 0.5);
-                task.estimatedTotalBytes = smoothEstimatedTotalBytes(
-                        task.estimatedTotalBytes, candidateTotal, downloadedBytes, confidence);
+                task.estimatedTotalBytes = lockEstimatedTotalBytes(
+                        task.estimatedTotalBytes, candidateTotal, downloadedBytes);
             }
             task.updatedAt = Math.max(System.currentTimeMillis(), task.updatedAt + 1L);
             persistTasksLocked();
@@ -1482,16 +1481,12 @@ public final class OfflineVideoCache {
         return Math.max(outputBytes, Math.round(estimate));
     }
 
-    static long smoothEstimatedTotalBytes(long previousEstimate, long candidateEstimate,
-                                          long minimumBytes, double confidence) {
-        if (candidateEstimate <= 0L) {
-            return previousEstimate > 0L ? Math.max(previousEstimate, minimumBytes) : -1L;
-        }
-        long candidate = Math.max(candidateEstimate, minimumBytes);
-        if (previousEstimate <= 0L) return candidate;
-        double weight = Math.max(0.1, Math.min(0.75, confidence));
-        long smoothed = Math.round(previousEstimate * (1.0 - weight) + candidate * weight);
-        return Math.max(minimumBytes, smoothed);
+    static long lockEstimatedTotalBytes(long previousEstimate, long candidateEstimate,
+                                        long observedBytes) {
+        long observed = Math.max(0L, observedBytes);
+        if (previousEstimate > 0L) return Math.max(previousEstimate, observed);
+        if (candidateEstimate <= 0L) return -1L;
+        return Math.max(candidateEstimate, observed);
     }
 
     /** Media3 Transformer 只提供百分比；从输出样本估算总量，同时保留网络字节速度统计。 */
@@ -1530,15 +1525,11 @@ public final class OfflineVideoCache {
             long outputBytes = outputPart != null && outputPart.isFile() ? outputPart.length() : 0L;
             long candidateEstimate = estimateTotalBytesFromProgress(outputBytes, safePercent);
             if (task.totalBytes <= 0L && candidateEstimate > 0L) {
-                long smoothedEstimate = smoothEstimatedTotalBytes(
-                        task.estimatedTotalBytes, candidateEstimate, outputBytes,
-                        safePercent / 100.0);
                 long previousEstimate = task.estimatedTotalBytes;
-                long estimateDelta = Math.abs(smoothedEstimate - previousEstimate);
-                long estimateThreshold = Math.max(256L * 1024L,
-                        previousEstimate > 0L ? previousEstimate / 100L : 0L);
-                if (previousEstimate <= 0L || estimateDelta >= estimateThreshold) {
-                    task.estimatedTotalBytes = smoothedEstimate;
+                long stableEstimate = lockEstimatedTotalBytes(
+                        previousEstimate, candidateEstimate, outputBytes);
+                if (stableEstimate != previousEstimate) {
+                    task.estimatedTotalBytes = stableEstimate;
                     changed = true;
                 }
             }

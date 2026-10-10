@@ -109,10 +109,15 @@ object YspLiveChannelCatalog {
                         addProperty("Referer", "https://live.cctv.cn/")
                     })
                     add("urls", JsonArray().apply {
-                        add("ysp://${channel.id}\$央视频动态源")
+                        val primaryQuality = channel.definition
+                        val backupQuality = if (primaryQuality == "fhd") "shd" else "fhd"
+                        add("ysp://${channel.id}?quality=$primaryQuality\$央视频${qualityName(primaryQuality)}")
+                        add("ysp://${channel.id}?quality=$backupQuality\$央视频${qualityName(backupQuality)}备用")
                     })
                 })
             }
         })
     }
+
+    private fun qualityName(quality: String): String = if (quality == "shd") "标清线路" else "高清线路"
 }
