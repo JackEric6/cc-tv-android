@@ -644,7 +644,7 @@ class ComposeVideoController @JvmOverloads constructor(
             state.playerBtnText = PlayerHelper.getPlayerName(playerType)
             state.scaleBtnText = PlayerHelper.getScaleName(cfg.getInt("sc"))
             // 解码文案按当前内核读各自的键(2026-09-17):IJK 读 cfg.ijk,EXO 读 cfg.exo
-            val codecName = cfg.optString(if (playerType == 2) "exo" else "ijk", "软解码")
+            val codecName = cfg.optString(if (playerType == 2) "exo" else "ijk", HawkConfig.DEFAULT_DECODE_MODE)
             state.ijkBtnText = when (codecName) {
                 "硬解码" -> "硬解"
                 "软解码" -> "软解"
@@ -980,7 +980,7 @@ class ComposeVideoController @JvmOverloads constructor(
             if (playerType == 2) {
                 // EXO(2026-09-17):硬解/软解两个取值直接互切;软解 = 系统软件解码器(c2.android.*)优先,
                 // 不看 ApiConfig.ijkCodes —— 那是 IJK 的 options 列表,与 media3 的选择器无关
-                val current = cfg.optString("exo", "软解码")
+                val current = cfg.optString("exo", HawkConfig.DEFAULT_DECODE_MODE)
                 cfg.put("exo", if (current == "软解码") "硬解码" else "软解码")
             } else {
                 var ijk = cfg.getString("ijk")

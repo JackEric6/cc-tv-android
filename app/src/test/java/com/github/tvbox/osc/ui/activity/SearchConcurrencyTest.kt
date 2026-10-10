@@ -23,15 +23,28 @@ class SearchConcurrencyTest {
 
     @Test
     fun searchSourcesUseRequestedPriorityOrder() {
-        val keys = listOf("juliang", "xgzy", "moduzy", "ffzy", "lzi", "guazi", "other")
+        val keys = listOf(
+            "other", "fan_moli", "cz4k", "fhw88", "360zy", "lzi", "dyttzy",
+            "bfzy", "ffzy", "xgzy", "fan_jianpian", "jianpian", "guazi",
+        )
         val ordered = keys.sortedWith(compareBy { SearchViewModel.sourcePriority(it, it) })
-        assertEquals(listOf("xgzy", "guazi", "ffzy", "lzi", "moduzy", "juliang", "other"), ordered)
-        assertEquals(0, SearchViewModel.sourcePriority("xgzy", "西瓜"))
-        assertEquals(1, SearchViewModel.sourcePriority("guazi", "瓜子"))
+        assertEquals(
+            listOf(
+                "guazi", "fan_jianpian", "jianpian", "xgzy", "ffzy", "bfzy", "dyttzy",
+                "lzi", "360zy", "fhw88", "cz4k", "fan_moli", "other",
+            ),
+            ordered,
+        )
+        assertEquals(0, SearchViewModel.sourcePriority("guazi", "瓜子"))
+        assertEquals(1, SearchViewModel.sourcePriority("fan_jianpian", "荐片┃原生"))
+        assertEquals(2, SearchViewModel.sourcePriority("xgzy", "西瓜"))
+        assertEquals(4, SearchViewModel.sourcePriority("cms_baofeng", "暴风┃本地"))
+        assertEquals(7, SearchViewModel.sourcePriority("360zy", "360"))
+        assertEquals(100, SearchViewModel.sourcePriority("unlisted", "其他影视源"))
     }
 
     @Test
-    fun searchResultDisplayUsesPriorityWithoutDependingOnArrivalOrder() {
+    fun searchResultDisplayUsesPriorityAndPreservesConfiguredOrderWithinGroups() {
         fun result(key: String, arrivedAt: Int) = SearchViewModel.SourceResult(
             sourceKey = key,
             sourceName = key,
@@ -42,17 +55,17 @@ class SearchConcurrencyTest {
 
         val displayed = SearchViewModel.sortResultsForDisplay(
             listOf(
-                result("other", 1),
-                result("moduzy", 4),
-                result("guazi", 6),
-                result("xgzy", 3),
-                result("ffzy", 2),
-                result("lzi", 5),
+                result("other-b", 1),
+                result("xgzy", 6),
+                result("guazi-second", 2).copy(sourceKey = "guazi", sourceName = "瓜子二"),
+                result("other-a", 3),
+                result("guazi-first", 5).copy(sourceKey = "guazi", sourceName = "瓜子一"),
+                result("jianpian", 4),
             ),
         )
         assertEquals(
-            listOf("xgzy", "guazi", "ffzy", "lzi", "moduzy", "other"),
-            displayed.map { it.sourceKey },
+            listOf("瓜子二", "瓜子一", "jianpian", "xgzy", "other-b", "other-a"),
+            displayed.map { it.sourceName },
         )
     }
 

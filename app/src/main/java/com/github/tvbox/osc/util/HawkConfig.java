@@ -6,6 +6,7 @@ package com.github.tvbox.osc.util;
  * @description:
  */
 public class HawkConfig {
+    public static final String DEFAULT_DECODE_MODE = "硬解码";
     public static final String API_URL = "api_url";
     /** 首次安装时使用的内置西瓜点播配置地址；已有用户配置不会被覆盖。 */
     public static final String DEFAULT_API_URL = "https://ghproxy.net/https://raw.githubusercontent.com/JackEric6/movie/refs/heads/xgzy-config-20260922/movie2_xgzy_all";

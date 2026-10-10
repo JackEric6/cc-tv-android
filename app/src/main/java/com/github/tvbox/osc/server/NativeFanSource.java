@@ -66,6 +66,11 @@ public final class NativeFanSource {
             "https://libvio.app", "https://www.libvio.app", "https://www.libvio.fun",
             "https://tv.libvio.cc", "https://libvio.cc", "https://libvio.mov"
     };
+    private static final Pattern NOMI_REMARK = Pattern.compile(
+            "(?:全\\s*\\d+\\s*集|共\\s*\\d+\\s*集|更新至\\s*\\d+\\s*集|更新到\\s*\\d+\\s*集|已完结|完结|全集|连载|更新中)");
+    private static final Pattern NOMI_YEAR = Pattern.compile("(?:19|20)\\d{2}");
+    private static final Pattern NOMI_AREA = Pattern.compile(
+            "中国大陆|中国香港|中国台湾|中国澳门|大陆|内地|香港|台湾|澳门|日本|韩国|美国|英国|泰国|印度|法国|德国|加拿大|澳大利亚|新加坡|马来西亚|俄罗斯|意大利|西班牙");
     private static volatile String libvioHost = "";
     private static final Pattern M3U8 = Pattern.compile("https?://[^\\\"'<>\\s]+(?:m3u8|mp4)(?:\\?[^\\\"'<>\\s]*)?", Pattern.CASE_INSENSITIVE);
     private static final Pattern NBY = Pattern.compile("NBY-[A-Za-z0-9_+./=-]+(?:\\|[A-Za-z0-9_+./=-]+)?");
@@ -127,7 +132,7 @@ public final class NativeFanSource {
         key = normalizeKey(key);
         if ("fan_nomi".equals(key)) {
             String tid = TextUtils.isEmpty(id) ? "1" : id;
-            String url = NOMI + "//index.php?m=vod-list-id-" + encode(tid)
+            String url = NOMI + "/index.php?m=vod-list-id-" + encode(tid)
                     + "-pg-" + Math.max(1, page) + "-order--by--class--year--letter--area--lang-.html";
             return nomiPage(fetchDocument(url));
         }
@@ -149,7 +154,7 @@ public final class NativeFanSource {
     public static String search(String key, String keyword) throws Exception {
         key = normalizeKey(key);
         if (TextUtils.isEmpty(keyword)) return emptyPage().toString();
-        if ("fan_nomi".equals(key)) return nomiPage(fetchDocument(NOMI + "//index.php?m=vod-search&wd=" + encode(keyword)));
+        if ("fan_nomi".equals(key)) return nomiPage(fetchDocument(NOMI + "/index.php?m=vod-search&wd=" + encode(keyword)));
         if ("fan_bit".equals(key)) return bitPage(fetchDocument(BIT + "/xssearch?q=" + encode(keyword) + "&f=_all&p=1"));
         if ("fan_juquan".equals(key)) return juquanSearch(keyword);
         if ("fan_hot".equals(key)) return appSearch(key, keyword);
@@ -186,7 +191,9 @@ public final class NativeFanSource {
 
         if ("fan_nomi".equals(key) || "fan_hot".equals(key)) {
             if (isNby(url)) url = resolveNby(url);
-            else if (!isMedia(url) && url.startsWith("/")) url = resolve("fan_hot".equals(key) ? HOT : NOMI, url);
+            else if (!isMedia(url) && url.startsWith("/")) {
+                url = "fan_hot".equals(key) ? resolve(HOT, url) : resolveNomi(url);
+            }
         } else if ("fan_bit".equals(key)) {
             url = resolveBitPlay(url);
         } else if ("fan_juquan".equals(key) && !isMedia(url)) {
@@ -253,20 +260,100 @@ public final class NativeFanSource {
         return root.toString();
     }
 
-    private static String nomiPage(Document document) {
+    static String nomiPage(Document document) {
         JsonArray list = new JsonArray();
         if (document != null) {
             for (Element link : document.select("a[href*='vod-detail']")) {
-                String id = link.attr("href").trim();
+                String id = normalizeNomiId(link.attr("href"));
                 if (id.isEmpty()) continue;
-                String name = cleanNomiTitle(firstNonEmpty(link.attr("title"), link.text()));
+                Element card = link.closest(
+                        "li,article,.item,.module,.module-item,.video-item,.search-item,.vodlist_item,.vodlist,[class*=item]");
+                if (card == null) card = link.parent();
                 Element image = link.selectFirst("img");
-                if (TextUtils.isEmpty(name) && image != null) name = cleanNomiTitle(image.attr("alt"));
-                JsonObject vod = vod(id, name, image == null ? "" : firstNonEmpty(image.attr("data-original"), image.attr("src")), "");
+                if (image == null && card != null) image = card.selectFirst("img");
+                String name = firstNomiTitle(
+                        firstNomiCardText(card, "h1,h2,h3,h4,[class*=title],[class*=name]"),
+                        image == null ? "" : image.attr("alt"),
+                        image == null ? "" : image.attr("title"),
+                        link.attr("title"), link.text(),
+                        card == null ? "" : card.text());
+                if (name.isEmpty()) continue;
+                String cardText = card == null ? link.text() : card.text();
+                JsonObject vod = vod(id, name,
+                        image == null ? "" : firstNonEmpty(image.attr("data-original"),
+                                image.attr("data-src"), image.attr("src")), cardText);
+                vod.addProperty("vod_remarks", nomiMetadata(card,
+                        "[data-remarks],[class*=remarks],[class*=note],[class*=episode],[class*=update],[class*=status]",
+                        "data-remarks", NOMI_REMARK));
+                vod.addProperty("vod_year", nomiMetadata(card,
+                        "[data-year],[class*=year]", "data-year", NOMI_YEAR));
+                vod.addProperty("vod_area", nomiMetadata(card,
+                        "[data-area],[class*=area],[class*=region]", "data-area", NOMI_AREA));
                 if (!containsId(list, id)) list.add(vod);
             }
         }
         return page(list, 1, 1, list.size()).toString();
+    }
+
+    private static String firstNomiTitle(String... values) {
+        for (String value : values) {
+            String title = cleanNomiTitle(value);
+            if (!title.isEmpty() && !title.startsWith("/")
+                    && !title.matches("(?i)^https?://.*")
+                    && !title.toLowerCase(Locale.ROOT).contains("vod-detail")
+                    && !isNomiActionText(title)) {
+                return title;
+            }
+        }
+        return "";
+    }
+
+    private static boolean isNomiActionText(String value) {
+        String normalized = value == null ? "" : value.trim()
+                .replaceAll("\\s+", "");
+        return normalized.equals("立即播放") || normalized.equals("播放")
+                || normalized.equals("详情") || normalized.equals("查看")
+                || normalized.equals("点击播放") || normalized.equals("下载")
+                || normalized.equals("在线观看") || normalized.equals("查看详情");
+    }
+
+    private static String firstNomiCardText(Element card, String selector) {
+        if (card == null) return "";
+        for (Element element : card.select(selector)) {
+            String text = firstNomiTitle(element.text());
+            if (!text.isEmpty()) return text;
+        }
+        return "";
+    }
+
+    private static String nomiMetadata(Element card, String selector, String attribute, Pattern pattern) {
+        if (card == null) return "";
+        for (Element element : card.select(selector)) {
+            String value = firstNonEmpty(element.attr(attribute), element.text());
+            String match = findNomiValue(pattern, value);
+            if (!match.isEmpty()) return match;
+        }
+        return findNomiValue(pattern, card.text());
+    }
+
+    private static String findNomiValue(Pattern pattern, String value) {
+        Matcher matcher = pattern.matcher(value == null ? "" : value);
+        return matcher.find() ? matcher.group().trim() : "";
+    }
+
+    private static String normalizeNomiId(String value) {
+        String id = value == null ? "" : value.trim();
+        if (id.startsWith("//") && (id.matches("(?i)^//vod-[^/]+.*")
+                || !id.matches("(?i)^//[^/]+\\.[a-z]{2,}(?::\\d+)?(?:/|$).*"))) {
+            while (id.startsWith("//")) id = id.substring(1);
+        }
+        return id;
+    }
+
+    private static String resolveNomi(String path) {
+        String normalized = normalizeNomiId(path);
+        if (normalized.startsWith("//")) return "https:" + normalized;
+        return resolve(NOMI, normalized);
     }
 
     private static String bitPage(Document document) {
@@ -292,24 +379,71 @@ public final class NativeFanSource {
     }
 
     private static String nomiDetail(String id) throws Exception {
-        String detailUrl = resolve(NOMI, id);
+        String detailUrl = resolveNomi(id);
         Document document = fetchDocument(detailUrl);
         JsonObject item = detailVod(document, id);
         item.addProperty("vod_name", cleanNomiTitle(value(item, "vod_name")));
-        JsonArray episodes = new JsonArray();
-        if (document != null) {
-            for (Element link : document.select("a[href*='vod-play']")) {
-                String href = link.attr("href").trim();
-                if (href.isEmpty()) continue;
-                String name = firstNonEmpty(link.attr("title"), link.text());
-                episodes.add((name.isEmpty() ? "播放" : name) + "$" + resolve(NOMI, href));
-            }
+        JsonObject playSources = nomiPlaySources(document);
+        if (playSources.get("vod_play_from").getAsString().isEmpty()) {
+            playSources.addProperty("vod_play_from", "线路1");
+            playSources.addProperty("vod_play_url", "播放$" + detailUrl);
         }
-        if (episodes.size() == 0) episodes.add("播放$" + detailUrl);
-        item.addProperty("vod_play_from", "线路1");
-        item.addProperty("vod_play_url", joinJson(episodes));
+        item.add("vod_play_from", playSources.get("vod_play_from"));
+        item.add("vod_play_url", playSources.get("vod_play_url"));
         JsonArray list = new JsonArray(); list.add(item);
         return page(list, 1, 1, 1).toString();
+    }
+
+    static JsonObject nomiPlaySources(Document document) {
+        JsonObject result = new JsonObject();
+        List<String> routeNames = new ArrayList<>();
+        List<String> routeEpisodes = new ArrayList<>();
+        Elements playLists = document == null ? new Elements() : document.select("#leftTabBox .numList");
+        if (playLists.isEmpty() && document != null) playLists = document.select(".numList");
+
+        if (playLists.isEmpty() && document != null) {
+            JsonArray episodes = nomiEpisodes(document.select("a[href*='vod-play']"));
+            if (episodes.size() > 0) {
+                routeNames.add("线路1");
+                routeEpisodes.add(joinJson(episodes));
+            }
+        } else {
+            Elements routeTabs = new Elements();
+            if (document != null) {
+                for (Element candidate : document.select("#leftTabBox ul li")) {
+                    if (candidate.closest(".numList") == null) routeTabs.add(candidate);
+                }
+            }
+            for (int i = 0; i < playLists.size(); i++) {
+                Element playList = playLists.get(i);
+                JsonArray episodes = nomiEpisodes(playList.select("a[href*='vod-play']"));
+                if (episodes.size() == 0) continue;
+                String name = i < routeTabs.size()
+                        ? firstNonEmpty(routeTabs.get(i).attr("title"), routeTabs.get(i).text())
+                        : firstNonEmpty(playList.attr("data-from"), playList.attr("title"));
+                routeNames.add(TextUtils.isEmpty(name) ? "线路" + (i + 1) : name.replaceAll("\\s+", " ").trim());
+                routeEpisodes.add(joinJson(episodes));
+            }
+        }
+
+        result.addProperty("vod_play_from", join(routeNames, "$$$"));
+        result.addProperty("vod_play_url", join(routeEpisodes, "$$$"));
+        return result;
+    }
+
+    private static JsonArray nomiEpisodes(Elements links) {
+        JsonArray episodes = new JsonArray();
+        Set<String> seen = new HashSet<>();
+        List<Element> orderedLinks = new ArrayList<>(links);
+        Collections.reverse(orderedLinks);
+        for (Element link : orderedLinks) {
+            String href = link.attr("href").trim();
+            if (href.isEmpty() || !seen.add(href)) continue;
+            String name = firstNonEmpty(link.attr("title"), link.text());
+            episodes.add((name.isEmpty() ? "第" + (episodes.size() + 1) + "集" : name)
+                    + "$" + resolveNomi(href));
+        }
+        return episodes;
     }
 
     private static String bitDetail(String id) throws Exception {

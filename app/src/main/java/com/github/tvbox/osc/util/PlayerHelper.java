@@ -41,8 +41,8 @@ public class PlayerHelper {
     public static void updateCfg(VideoView videoView, JSONObject playerCfg,int forcePlayerType) {
         int playerType = KV.get(HawkConfig.PLAY_TYPE, 2);
         int renderType = KV.get(HawkConfig.PLAY_RENDER, 1);
-        String ijkCode = KV.get(HawkConfig.IJK_CODEC, "软解码");
-        String exoDecode = KV.get(HawkConfig.EXO_DECODE, "软解码");
+        String ijkCode = KV.get(HawkConfig.IJK_CODEC, HawkConfig.DEFAULT_DECODE_MODE);
+        String exoDecode = KV.get(HawkConfig.EXO_DECODE, HawkConfig.DEFAULT_DECODE_MODE);
         int scale = KV.get(HawkConfig.PLAY_SCALE, 0);
         try {
             playerType = playerCfg.getInt("pl");
@@ -240,7 +240,7 @@ public class PlayerHelper {
         // 解码值来源与其它路径统一(2026-09-17):优先本次播放的有效值(updateCfg 下发的"本剧配置 → 全局"),
         // 拿不到(该视图从未走过 updateCfg)才回落全局 —— 否则"播放器里给这部剧选的解码"对 rtmp 永远不生效
         String ijkName = view.effectiveIjkCodec();
-        if (TextUtils.isEmpty(ijkName)) ijkName = KV.get(HawkConfig.IJK_CODEC, "软解码");
+        if (TextUtils.isEmpty(ijkName)) ijkName = KV.get(HawkConfig.IJK_CODEC, HawkConfig.DEFAULT_DECODE_MODE);
         IJKCode codec = ApiConfig.get().getIJKCodec(ijkName);
         view.forceIjkFactory(new PlayerFactory<IjkMediaPlayer>() {
             @Override

@@ -83,6 +83,12 @@ public class App extends Application {
         }
         KV.put(HawkConfig.DEFAULT_API_MIGRATION, true);
         KV.put(HawkConfig.PLAYER_IS_LIVE, false);
+        if (!KV.contains(HawkConfig.IJK_CODEC)) {
+            KV.put(HawkConfig.IJK_CODEC, HawkConfig.DEFAULT_DECODE_MODE);
+        }
+        if (!KV.contains(HawkConfig.EXO_DECODE)) {
+            KV.put(HawkConfig.EXO_DECODE, HawkConfig.DEFAULT_DECODE_MODE);
+        }
         if (!KV.contains(HawkConfig.PLAY_TYPE)) {
             KV.put(HawkConfig.PLAY_TYPE, 2);
         } else if (KV.get(HawkConfig.PLAY_TYPE, 2) == 0) {
