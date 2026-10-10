@@ -16,6 +16,7 @@ import java.net.URI
 import java.util.Base64
 import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.security.SecureRandom
 import kotlin.coroutines.resume
@@ -36,13 +37,24 @@ internal object YspLiveResolver {
     private val guardTeaKey = hex("110dbec10c23e7d2e56a1cad6914ef1b")
     private val ckeyXor = hex("842eed08f066e6ea48b4caa991ed6ff3")
     private val guardXor = hex("b3c953a06913ad4d")
+    private val prefetchedUrls = YspPrefetchCache()
     private val http = OkHttpClient.Builder()
-        .connectTimeout(6, TimeUnit.SECONDS)
-        .readTimeout(8, TimeUnit.SECONDS)
-        .callTimeout(12, TimeUnit.SECONDS)
+        .connectTimeout(3, TimeUnit.SECONDS)
+        .readTimeout(4, TimeUnit.SECONDS)
+        .callTimeout(5, TimeUnit.SECONDS)
         .build()
 
     suspend fun resolve(source: String): String? {
+        prefetchedUrls.take(source)?.let { return it }
+        return resolveFresh(source)
+    }
+
+    suspend fun prefetch(source: String) {
+        val url = resolveFresh(source) ?: return
+        prefetchedUrls.put(source, url)
+    }
+
+    private suspend fun resolveFresh(source: String): String? {
         val uri = runCatching { URI(source) }.getOrNull() ?: return null
         if (uri.scheme != "ysp") return null
         val channelId = uri.host ?: return null
@@ -313,4 +325,23 @@ internal object YspLiveResolver {
 
     private fun hex(value: String): ByteArray = value.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
 
+}
+
+internal class YspPrefetchCache(
+    private val ttlMillis: Long = 15_000,
+    private val nowMillis: () -> Long = System::currentTimeMillis,
+) {
+    private data class Entry(val url: String, val expiresAt: Long)
+    private val entries = ConcurrentHashMap<String, Entry>()
+
+    fun put(source: String, url: String) {
+        if (source.isNotBlank() && url.isNotBlank()) {
+            entries[source] = Entry(url, nowMillis() + ttlMillis)
+        }
+    }
+
+    fun take(source: String): String? {
+        val entry = entries.remove(source) ?: return null
+        return entry.url.takeIf { nowMillis() <= entry.expiresAt }
+    }
 }

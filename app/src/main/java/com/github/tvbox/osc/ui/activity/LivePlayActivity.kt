@@ -133,6 +133,7 @@ class LivePlayActivity : BaseActivity() {
     private val mHandler = Handler(Looper.getMainLooper())
     private val liveResolveScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var liveResolveJob: Job? = null
+    private var livePrefetchJob: Job? = null
     private var livePlaybackRequestId = 0
     private val liveChannelGroupList = ArrayList<LiveChannelGroup>()
     internal var currentChannelGroupIndex: Int by VmVar(LivePlayViewModel::currentChannelGroupIndex)
@@ -493,6 +494,26 @@ class LivePlayActivity : BaseActivity() {
                 return@launch
             }
             startResolvedChannel(videoView, liveUrl, reusePlayer)
+            prefetchNextYspChannel(source)
+        }
+    }
+
+    private fun prefetchNextYspChannel(currentSource: String) {
+        if (!currentSource.startsWith("ysp://")) return
+        val next = getNextChannel(1)
+        val nextItem = getLiveChannels(next[0])?.getOrNull(next[1]) ?: return
+        val nextSource = nextItem.url
+        if (!nextSource.startsWith("ysp://") || nextSource == currentSource) return
+
+        livePrefetchJob?.cancel()
+        livePrefetchJob = liveResolveScope.launch(Dispatchers.IO) {
+            try {
+                YspLiveResolver.prefetch(nextSource)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                LOG.d(TAG, "央视频道预解析失败: ${error.message}")
+            }
         }
     }
 

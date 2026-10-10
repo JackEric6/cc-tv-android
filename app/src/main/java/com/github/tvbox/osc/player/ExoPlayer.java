@@ -98,12 +98,13 @@ public class ExoPlayer extends ExoMediaPlayer {
         // 保证大缓冲只影响"播起来后攒多少水"而不拖慢起播;下次新建播放器实例时生效
         int bufferTimes = KV.get(HawkConfig.BUFFER_TIMES, HawkConfig.BUFFER_TIMES_DEFAULT);
         bufferTimes = Math.max(1, Math.min(10, bufferTimes));
+        boolean livePlayback = KV.get(HawkConfig.PLAYER_IS_LIVE, false);
         setLoadControl(new DefaultLoadControl.Builder()
                 .setBufferDurationsMs(
                         DefaultLoadControl.DEFAULT_MIN_BUFFER_MS * bufferTimes,
                         DefaultLoadControl.DEFAULT_MAX_BUFFER_MS * bufferTimes,
-                        DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
-                        DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS)
+                        livePlayback ? 1_000 : DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
+                        livePlayback ? 1_500 : DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS)
                 .build());
         setRenderersFactory(buildRenderersFactory(context));
         LOG.i("echo-exo-low-memory-load-control");
