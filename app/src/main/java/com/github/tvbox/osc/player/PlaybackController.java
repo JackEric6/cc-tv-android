@@ -1446,6 +1446,7 @@ public class PlaybackController {
         if (Jianpian.isJpUrl(vs.url)) {// 荐片地址特殊判断
             String jp_url = vs.url;
             if (view != null) view.showParse(false);
+            searchDanmu();
             if (vs.url.startsWith("tvbox-xg:")) {
                 playUrl(Jianpian.JPUrlDec(jp_url.substring(9)), null);
             } else {
@@ -1457,6 +1458,7 @@ public class PlaybackController {
         // 也必须直接交给应用内播放器，不能落入 sourceViewModel.getPlay() 的资源站链路。
         if (OFFLINE_SOURCE_KEY.equalsIgnoreCase(sourceKey())) {
             if (view != null) view.showParse(false);
+            searchDanmu();
             playUrl(vs.url, null);
             return;
         }
@@ -1465,6 +1467,7 @@ public class PlaybackController {
         // 会把首帧延迟放大到数秒，并且某些站点会把直链误判成待解析页面。
         if (isDirectMediaUrl(vs.url)) {
             if (view != null) view.showParse(false);
+            searchDanmu();
             playUrl(vs.url, null);
             return;
         }
@@ -1486,6 +1489,7 @@ public class PlaybackController {
             }
         })) {
             if (view != null) view.showParse(false);
+            searchDanmu();
             return;
         }
 
