@@ -38,10 +38,12 @@ import com.github.tvbox.osc.util.PermissionHelper;
 import com.github.tvbox.osc.util.Proxy;
 import com.github.tvbox.osc.util.VideoParseRuler;
 import com.github.tvbox.osc.util.live.TxtSubscribe;
+import com.github.tvbox.osc.util.live.YspLiveChannelCatalog;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.github.tvbox.osc.util.KV;
 
 import org.json.JSONObject;
@@ -373,7 +375,15 @@ public class ApiConfig {
             StringBuilder content = new StringBuilder();
             String line;
             while ((line = reader.readLine()) != null) content.append(line).append('\n');
-            parseLiveConfigContent("bundled://" + BUNDLED_LIVE_CONFIG_NAME, content.toString());
+            JsonObject bundledConfig = JsonParser.parseString(content.toString()).getAsJsonObject();
+            JsonArray expandedLives = new JsonArray();
+            for (JsonElement group : YspLiveChannelCatalog.createGroups()) expandedLives.add(group);
+            JsonArray localLives = bundledConfig.getAsJsonArray("lives");
+            if (localLives != null) {
+                for (JsonElement group : localLives) expandedLives.add(group);
+            }
+            bundledConfig.add("lives", expandedLives);
+            parseLiveConfigContent("bundled://" + BUNDLED_LIVE_CONFIG_NAME, bundledConfig.toString());
             if (!hasLiveConfigResult()) return false;
             loadedLiveConfigUrl = "bundled://" + BUNDLED_LIVE_CONFIG_NAME;
             LOG.i("echo-bundled-live-config-----------load");

@@ -37,9 +37,17 @@ import com.github.tvbox.osc.util.DefaultConfig
 import com.github.tvbox.osc.util.HawkConfig
 import com.github.tvbox.osc.util.LOG
 import com.github.tvbox.osc.util.PlayerHelper
+import com.github.tvbox.osc.util.live.YspLiveResolver
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.github.tvbox.osc.util.KV
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import xyz.doikki.videoplayer.exo.ExoMediaSourceHelper
 import xyz.doikki.videoplayer.player.VideoView
 import xyz.doikki.videoplayer.util.PlayerUtils
@@ -123,6 +131,9 @@ class LivePlayActivity : BaseActivity() {
     internal var mVideoView: MyVideoView? = null
     private var liveController: ComposeLiveController? = null
     private val mHandler = Handler(Looper.getMainLooper())
+    private val liveResolveScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var liveResolveJob: Job? = null
+    private var livePlaybackRequestId = 0
     private val liveChannelGroupList = ArrayList<LiveChannelGroup>()
     internal var currentChannelGroupIndex: Int by VmVar(LivePlayViewModel::currentChannelGroupIndex)
     internal var currentLiveChannelIndex: Int by VmVar(LivePlayViewModel::currentLiveChannelIndex)
@@ -241,6 +252,9 @@ class LivePlayActivity : BaseActivity() {
     }
 
     override fun onDestroy() {
+        livePlaybackRequestId++
+        liveResolveJob?.cancel()
+        liveResolveScope.cancel()
         super.onDestroy()
         hideSwitchChannelSnapshot()
         PlaybackService.peek()?.exitLive()
@@ -281,9 +295,7 @@ class LivePlayActivity : BaseActivity() {
         hideSwitchChannelSnapshot()
         // 与 playChannel 同款对齐(2026-09-17):接管路径可能紧跟在点播会话之后,别让 rtmp 频道用残留值
         videoView.setEffectiveIjkCodec(livePlayerManager.effectiveIjkCodecName())
-        videoView.setUrl(item.url, liveChannelHeader())
-        videoView.start()
-        showResolutionAfterChannelSwitch()
+        requestAndStartChannel(item, videoView, reusePlayer = false)
         loadEpgAfterChannelStarted()
         epgVersion++
     }
@@ -447,20 +459,48 @@ class LivePlayActivity : BaseActivity() {
             } else {
                 hideSwitchChannelSnapshot()
             }
-            val liveUrl = item.url
-            if (reusePlayer) {
-                videoView.setUrl(liveUrl, liveChannelHeader())
-                videoView.replay(true)
-            } else {
-                releasePlayerKernel()
-                videoView.setUrl(liveUrl, liveChannelHeader())
-                videoView.start()
-            }
-            showResolutionAfterChannelSwitch()
+            if (!reusePlayer) releasePlayerKernel()
+            requestAndStartChannel(item, videoView, reusePlayer)
         }
         loadEpgAfterChannelStarted()
         epgVersion++
         return true
+    }
+
+    private fun requestAndStartChannel(item: LiveChannelItem, videoView: MyVideoView, reusePlayer: Boolean) {
+        liveResolveJob?.cancel()
+        val requestId = ++livePlaybackRequestId
+        val source = item.url
+        if (!source.startsWith("ysp://")) {
+            startResolvedChannel(videoView, source, reusePlayer)
+            return
+        }
+
+        videoView.pause()
+        liveResolveJob = liveResolveScope.launch {
+            val liveUrl = try {
+                YspLiveResolver.resolve(source)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                LOG.e(TAG, "央视频道地址获取失败: ${error.message}", error)
+                null
+            }
+            if (requestId != livePlaybackRequestId || isFinishing || isDestroyed) return@launch
+            if (liveUrl.isNullOrBlank()) {
+                hideSwitchChannelSnapshot()
+                Toast.makeText(this@LivePlayActivity, "频道地址获取失败，请稍后重试", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            startResolvedChannel(videoView, liveUrl, reusePlayer)
+        }
+    }
+
+    private fun startResolvedChannel(videoView: MyVideoView, url: String, reusePlayer: Boolean) {
+        videoView.setEffectiveIjkCodec(livePlayerManager.effectiveIjkCodecName())
+        videoView.setUrl(url, liveChannelHeader())
+        if (reusePlayer) videoView.replay(true) else videoView.start()
+        showResolutionAfterChannelSwitch()
     }
 
     private fun canReusePlayer(previousLivePlayerType: Int): Boolean {
@@ -519,8 +559,12 @@ class LivePlayActivity : BaseActivity() {
         }
         allowLiveSwitchPlayer = false
         val retryUrl = if (isSHIYI && !TextUtils.isEmpty(playUrl)) playUrl!! else item.url
-        videoView.setUrl(retryUrl, liveChannelHeader())
-        videoView.start()
+        if (isSHIYI) {
+            videoView.setUrl(retryUrl, liveChannelHeader())
+            videoView.start()
+        } else {
+            requestAndStartChannel(item, videoView, reusePlayer = false)
+        }
         return true
     }
 
@@ -750,6 +794,8 @@ class LivePlayActivity : BaseActivity() {
     }
 
     private fun clearLiveChannelList(releasePlayer: Boolean) {
+        livePlaybackRequestId++
+        liveResolveJob?.cancel()
         refreshingLiveChannelList = false
         pendingLiveRefreshChannelName = null
         pendingLiveRefreshSourceIndex = -1
@@ -877,8 +923,7 @@ class LivePlayActivity : BaseActivity() {
             val videoView = mVideoView ?: return
             releasePlayerKernel()
             livePlayerManager.changeLivePlayerType(videoView, position)
-            currentLiveChannelItem?.let { videoView.setUrl(it.url, liveChannelHeader()) }
-            videoView.start()
+            currentLiveChannelItem?.let { requestAndStartChannel(it, videoView, reusePlayer = false) }
         }
 
         override fun releasePlayerKernel() {
@@ -1013,8 +1058,7 @@ class LivePlayActivity : BaseActivity() {
         isSHIYI = false
         isBackState = false
         overlayVisible = false
-        videoView.setUrl(item.url, liveChannelHeader())
-        videoView.start()
+        requestAndStartChannel(item, videoView, reusePlayer = false)
         epgVersion++
     }
 
