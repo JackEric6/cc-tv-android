@@ -6,6 +6,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.github.tvbox.osc.util.HawkConfig;
 
 import org.junit.Test;
 
@@ -13,6 +14,15 @@ import java.util.HashSet;
 import java.util.Set;
 
 public class ApiConfigBundledSourcesTest {
+    @Test
+    public void defaultConfigUsesBundledAssetInsteadOfLegacyRemoteAddress() {
+        assertTrue(ApiConfig.usesBundledDefaultConfig(HawkConfig.DEFAULT_API_URL));
+        assertTrue(HawkConfig.DEFAULT_API_URL.startsWith("bundled://"));
+        assertFalse(ApiConfig.usesBundledDefaultConfig(
+                "https://ghproxy.net/https://raw.githubusercontent.com/JackEric6/movie/refs/heads/xgzy-config-20260922/movie2_xgzy_all"));
+        assertFalse(ApiConfig.usesBundledDefaultConfig("https://example.com/custom.json"));
+    }
+
     @Test
     public void removesRetiredDefaultSourcesButKeepsCanonicalQuantumAndFeifan() {
         JsonArray sites = new JsonArray();

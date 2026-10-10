@@ -167,10 +167,20 @@ public class ApiConfig {
         return ControlManager.get().getAddress(true);
     }
 
+    static boolean usesBundledDefaultConfig(String apiUrl) {
+        return HawkConfig.DEFAULT_API_URL.equals(apiUrl);
+    }
+
     public void loadConfig(boolean useCache, LoadConfigCallback callback, Activity activity) {
         String apiUrl = KV.get(HawkConfig.API_URL, "");
         if (apiUrl.isEmpty()) {
             callback.error("-1");
+            return;
+        }
+        if (usesBundledDefaultConfig(apiUrl)) {
+            if (!loadBundledDefaultConfig(apiUrl, callback)) {
+                callback.error("读取 APK 内置点播配置失败");
+            }
             return;
         }
         File cache = new File(App.getInstance().getFilesDir().getAbsolutePath() + "/" + MD5.encode(apiUrl));
@@ -535,8 +545,7 @@ public class ApiConfig {
     }
 
     /**
-     * 默认远程配置不可用时使用 APK 内置副本,保证首次安装仍能搜索、详情和播放。
-     * 只对本应用的默认地址启用,用户手动填写的其他源仍按原错误流程处理。
+     * 默认点播源始终从 APK 内置配置读取。用户手动填写的其他地址仍走远程/本地源加载流程。
      */
     private boolean loadBundledDefaultConfig(String apiUrl, LoadConfigCallback callback) {
         if (!HawkConfig.DEFAULT_API_URL.equals(apiUrl)) {
@@ -550,6 +559,7 @@ public class ApiConfig {
                 content.append(line).append('\n');
             }
             String json = content.toString();
+            clearApiLinesIfUnmatched(apiUrl);
             parseJson(apiUrl, json);
             File cache = new File(App.getInstance().getFilesDir().getAbsolutePath() + "/" + MD5.encode(apiUrl));
             FileUtils.saveCache(cache, json);
@@ -973,7 +983,7 @@ public class ApiConfig {
         }
     }
 
-    /** 默认远程配置即使暂未更新，也清理下线源并补入 APK 新增站点。 */
+    /** 默认内置配置加载时，清理下线源并补入 APK 新增站点。 */
     private void mergeBundledDefaultSources(String apiUrl, JsonObject infoJson) {
         if (!HawkConfig.DEFAULT_API_URL.equals(apiUrl) || infoJson == null) return;
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(

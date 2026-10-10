@@ -18,8 +18,6 @@ import com.p2p.P2PClass;
 import com.whl.quickjs.android.QuickJSLoader;
 import com.github.catvod.crawler.JsLoader;
 
-import java.util.Locale;
-
 import me.jessyan.autosize.AutoSizeConfig;
 import me.jessyan.autosize.unit.Subunits;
 import xyz.doikki.videoplayer.exo.ExoMediaSourceHelper;
@@ -30,6 +28,8 @@ import xyz.doikki.videoplayer.exo.ExoMediaSourceHelper;
  * @description:
  */
 public class App extends Application {
+    private static final String LEGACY_DEFAULT_API_URL =
+            "https://ghproxy.net/https://raw.githubusercontent.com/JackEric6/movie/refs/heads/xgzy-config-20260922/movie2_xgzy_all";
     private static App instance;
 
     private static P2PClass p;
@@ -78,7 +78,7 @@ public class App extends Application {
         // 用户后来在设置页填写的其他地址必须保留。
         String apiUrl = KV.get(HawkConfig.API_URL, "").trim();
         boolean migrated = KV.get(HawkConfig.DEFAULT_API_MIGRATION, false);
-        if (apiUrl.isEmpty() || (!migrated && isLegacyBundledMovieConfig(apiUrl))) {
+        if (shouldReplaceApiUrlWithBundledDefault(apiUrl, migrated)) {
             KV.put(HawkConfig.API_URL, HawkConfig.DEFAULT_API_URL);
         }
         KV.put(HawkConfig.DEFAULT_API_MIGRATION, true);
@@ -99,10 +99,13 @@ public class App extends Application {
         }
     }
 
-    private boolean isLegacyBundledMovieConfig(String apiUrl) {
-        String lower = apiUrl.toLowerCase(Locale.ROOT);
-        return lower.contains("raw.githubusercontent.com/jackeric6/movie/")
-                && lower.contains("/movie2");
+    static boolean shouldReplaceApiUrlWithBundledDefault(String apiUrl, boolean migrationDone) {
+        if (apiUrl == null || apiUrl.trim().isEmpty()) return true;
+        return !migrationDone && isLegacyBundledMovieConfig(apiUrl);
+    }
+
+    private static boolean isLegacyBundledMovieConfig(String apiUrl) {
+        return LEGACY_DEFAULT_API_URL.equalsIgnoreCase(apiUrl.trim());
     }
 
     public static App getInstance() {

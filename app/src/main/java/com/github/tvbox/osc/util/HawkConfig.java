@@ -9,10 +9,10 @@ public class HawkConfig {
     public static final String DEFAULT_DECODE_MODE = "硬解码";
     public static final boolean M3U8_PURIFY_DEFAULT = true;
     public static final String API_URL = "api_url";
-    /** 首次安装时使用的内置西瓜点播配置地址；已有用户配置不会被覆盖。 */
-    public static final String DEFAULT_API_URL = "https://ghproxy.net/https://raw.githubusercontent.com/JackEric6/movie/refs/heads/xgzy-config-20260922/movie2_xgzy_all";
-    /** 只迁移本项目旧版内置配置地址,不影响用户手动填写的其他配置。 */
-    public static final String DEFAULT_API_MIGRATION = "default_api_migration_xgzy_all_20260922";
+    /** 默认点播配置直接读取 APK assets,不依赖远程 JSON。 */
+    public static final String DEFAULT_API_URL = "bundled://xgzy_config_all.json";
+    /** 把旧版默认远程配置迁移到 APK 内置配置,不影响用户手动填写的其他地址。 */
+    public static final String DEFAULT_API_MIGRATION = "default_api_migration_xgzy_local_20261010";
     public static final String EPG_URL = "epg_url";
     public static final String API_HISTORY = "api_history";
     public static final String API_LINE_LIST = "api_line_list";
