@@ -93,18 +93,16 @@ public class ExoPlayer extends ExoMediaPlayer {
 
     public ExoPlayer(Context context) {
         super(context);
-        // 缓冲倍数(2026-09-12,照搬 fongmi ExoUtil.buildLoadControl):
-        // 蓄水目标 min/max = 官方默认 50s × 用户倍数;直播起播/再缓冲阈值单独压到 750/1250ms,
-        // 其余播放仍用 Media3 默认值;下次新建播放器实例时生效
+        // 点播沿用用户缓冲倍数；直播保留适中的前向缓冲，降低网络抖动造成的频繁卡顿。
         int bufferTimes = KV.get(HawkConfig.BUFFER_TIMES, HawkConfig.BUFFER_TIMES_DEFAULT);
         bufferTimes = Math.max(1, Math.min(10, bufferTimes));
         boolean livePlayback = KV.get(HawkConfig.PLAYER_IS_LIVE, false);
         setLoadControl(new DefaultLoadControl.Builder()
                 .setBufferDurationsMs(
-                        DefaultLoadControl.DEFAULT_MIN_BUFFER_MS * bufferTimes,
-                        DefaultLoadControl.DEFAULT_MAX_BUFFER_MS * bufferTimes,
-                        livePlayback ? 750 : DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
-                        livePlayback ? 1_250 : DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS)
+                        livePlayback ? 10_000 : DefaultLoadControl.DEFAULT_MIN_BUFFER_MS * bufferTimes,
+                        livePlayback ? 20_000 : DefaultLoadControl.DEFAULT_MAX_BUFFER_MS * bufferTimes,
+                        livePlayback ? 1_500 : DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
+                        livePlayback ? 4_000 : DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS)
                 .build());
         setRenderersFactory(buildRenderersFactory(context));
         LOG.i("echo-exo-low-memory-load-control");

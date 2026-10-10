@@ -19,6 +19,7 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.ArrayDeque;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -80,8 +81,9 @@ public final class OfflineVideoCache {
     private static final int DIRECT_DOWNLOAD_ATTEMPTS = 4;
     private static final long DIRECT_RETRY_BASE_MS = 500L;
     private static final long MAX_FILE_BYTES = 4L * 1024L * 1024L * 1024L;
-    private static final long MIN_DURATION_ESTIMATE_SAMPLE_MS = 15_000L;
-    private static final int MIN_TRANSFORM_ESTIMATE_PROGRESS = 3;
+    private static final long MIN_SEGMENT_ESTIMATE_SAMPLE_MS = 30_000L;
+    private static final int MIN_SEGMENT_ESTIMATE_SAMPLES = 6;
+    private static final int MIN_TRANSFORM_ESTIMATE_PROGRESS = 20;
     /** Shared cap for independent offline downloads across direct, HLS, and transformed media. */
     static final int MAX_ACTIVE_DOWNLOADS = 5;
     private static final Semaphore DOWNLOAD_SLOTS =
@@ -1428,11 +1430,11 @@ public final class OfflineVideoCache {
         notifyListeners(context);
     }
 
-    static void markSegmentProgressByDuration(Context context, String id, int completedSegments,
-                                             int totalSegments, long downloadedBytes,
-                                             long completedDurationMs, long totalDurationMs,
-                                             long completedBytes,
-                                             @Nullable DownloadHandle handle) {
+    static void markSegmentProgressByEstimate(Context context, String id, int completedSegments,
+                                              int totalSegments, long downloadedBytes,
+                                              long completedDurationMs, long totalDurationMs,
+                                              long candidateTotal,
+                                              @Nullable DownloadHandle handle) {
         markProgress(context, id, downloadedBytes, -1L, false, handle);
         if (context == null || TextUtils.isEmpty(id) || totalSegments <= 0
                 || completedDurationMs <= 0L || totalDurationMs <= 0L
@@ -1441,8 +1443,6 @@ public final class OfflineVideoCache {
                     downloadedBytes, handle);
             return;
         }
-        long candidateTotal = estimateTotalBytesFromDuration(
-                completedBytes, completedDurationMs, totalDurationMs);
         if (!isCurrentHandle(id, handle)) return;
         ensureTasksLoaded(context);
         synchronized (TASK_LOCK) {
@@ -1453,8 +1453,7 @@ public final class OfflineVideoCache {
             int safePercent = (int) Math.min(99L,
                     Math.max(0L, completedDurationMs * 100L / totalDurationMs));
             task.progressPercent = Math.max(task.progressPercent, safePercent);
-            if (task.totalBytes <= 0L && candidateTotal > 0L
-                    && completedDurationMs >= MIN_DURATION_ESTIMATE_SAMPLE_MS) {
+            if (task.totalBytes <= 0L && candidateTotal > 0L) {
                 task.estimatedTotalBytes = lockEstimatedTotalBytes(
                         task.estimatedTotalBytes, candidateTotal, downloadedBytes);
             }
@@ -1464,13 +1463,41 @@ public final class OfflineVideoCache {
         notifyListeners(context);
     }
 
-    static long estimateTotalBytesFromDuration(long completedBytes, long completedDurationMs,
-                                               long totalDurationMs) {
-        if (completedBytes <= 0L || completedDurationMs < MIN_DURATION_ESTIMATE_SAMPLE_MS
-                || totalDurationMs < completedDurationMs) return -1L;
-        double estimate = completedBytes * (double) totalDurationMs / completedDurationMs;
+    static long estimateTotalBytesFromSegmentSamples(long[] segmentBytes,
+                                                    long[] segmentDurationsMs,
+                                                    long totalDurationMs) {
+        if (segmentBytes == null || segmentDurationsMs == null
+                || segmentBytes.length != segmentDurationsMs.length
+                || totalDurationMs <= 0L) return -1L;
+        double[] rates = new double[segmentBytes.length];
+        int count = 0;
+        long sampledDurationMs = 0L;
+        for (int i = 0; i < segmentBytes.length; i++) {
+            if (segmentBytes[i] <= 0L || segmentDurationsMs[i] <= 0L) continue;
+            rates[count++] = segmentBytes[i] / (double) segmentDurationsMs[i];
+            sampledDurationMs += segmentDurationsMs[i];
+        }
+        if (count < MIN_SEGMENT_ESTIMATE_SAMPLES
+                || sampledDurationMs < MIN_SEGMENT_ESTIMATE_SAMPLE_MS) return -1L;
+        Arrays.sort(rates, 0, count);
+        double median = count % 2 == 0
+                ? (rates[count / 2 - 1] + rates[count / 2]) / 2.0
+                : rates[count / 2];
+        if (!Double.isFinite(median) || median <= 0.0) return -1L;
+
+        // Trim one low/high sample when possible so a single intro, ad, or oversized
+        // segment cannot determine the estimate for the entire episode.
+        int start = count >= 8 ? 1 : 0;
+        int end = count >= 8 ? count - 1 : count;
+        double rateSum = 0.0;
+        int rateCount = 0;
+        for (int i = start; i < end; i++) {
+            rateSum += Math.max(median * 0.4, Math.min(median * 2.5, rates[i]));
+            rateCount++;
+        }
+        double estimate = (rateSum / rateCount) * totalDurationMs;
         if (!Double.isFinite(estimate) || estimate <= 0.0 || estimate > MAX_FILE_BYTES) return -1L;
-        return Math.max(completedBytes, Math.round(estimate));
+        return Math.round(estimate);
     }
 
     static long estimateTotalBytesFromProgress(long outputBytes, int progressPercent) {

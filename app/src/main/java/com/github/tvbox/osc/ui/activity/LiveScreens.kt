@@ -219,20 +219,6 @@ private fun PlayerArea(activity: LivePlayActivity, modifier: Modifier) {
         ) {
             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center).size(40.dp), color = Color.White)
         }
-        if (activity.resolutionVisible && activity.resolutionText.isNotEmpty()) {
-            Surface(
-                modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
-                shape = RoundedCornerShape(6.dp),
-                color = Color.Black.copy(alpha = 0.55f),
-            ) {
-                Text(
-                    text = activity.resolutionText,
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                )
-            }
-        }
         activity.gestureHintText?.let { hint ->
             Surface(
                 modifier = Modifier.align(Alignment.Center),

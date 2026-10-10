@@ -407,6 +407,8 @@ final class OfflineHlsTransformer {
         long totalDurationMs = 0L;
         long completedDurationMs = 0L;
         long completedBytes = 0L;
+        long[] segmentBytes = new long[segments.size()];
+        long[] segmentDurationsMs = new long[segments.size()];
         for (int i = 0; i < segments.size(); i++) {
             MediaSegment segment = segments.get(i);
             if (segment.durationMs <= 0L) {
@@ -414,16 +416,20 @@ final class OfflineHlsTransformer {
                 break;
             }
             totalDurationMs += segment.durationMs;
+            segmentDurationsMs[i] = segment.durationMs;
             File file = segmentFiles.get(i);
             if (isReusableSegment(file)) {
                 completedDurationMs += segment.durationMs;
                 completedBytes += file.length();
+                segmentBytes[i] = file.length();
             }
         }
         if (totalDurationMs > 0L && completedDurationMs > 0L && completedBytes > 0L) {
-            OfflineVideoCache.markSegmentProgressByDuration(context, key, completedSegments,
+            long estimate = OfflineVideoCache.estimateTotalBytesFromSegmentSamples(
+                    segmentBytes, segmentDurationsMs, totalDurationMs);
+            OfflineVideoCache.markSegmentProgressByEstimate(context, key, completedSegments,
                     segments.size(), downloadedBytes, completedDurationMs, totalDurationMs,
-                    completedBytes, handle);
+                    estimate, handle);
         } else {
             OfflineVideoCache.markSegmentProgress(context, key, completedSegments,
                     segments.size(), downloadedBytes, handle);

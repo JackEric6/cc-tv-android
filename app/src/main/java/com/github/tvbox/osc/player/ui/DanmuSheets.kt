@@ -31,6 +31,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.github.tvbox.osc.R
 import com.github.tvbox.osc.api.DanmakuApi
+import com.github.tvbox.osc.api.DanmuEpisodeMatcher
 import com.github.tvbox.osc.bean.DanmuSearchResult
 import com.github.tvbox.osc.event.RefreshEvent
 import com.github.tvbox.osc.player.state.DanmuSearchSheetState
@@ -188,7 +189,9 @@ fun DanmuSearchSheet(sheet: DanmuSearchSheetState, onDismiss: () -> Unit) {
                 override fun onSuccess(list: List<DanmuSearchResult>?) {
                     mainHandler.post {
                         loading = false
-                        results = list ?: emptyList()
+                        results = list.orEmpty().sortedByDescending {
+                            DanmuEpisodeMatcher.matchScore(w, sheet.episode, it.name)
+                        }
                         if (list.isNullOrEmpty()) {
                             Toast.makeText(context, "未查询到匹配弹幕", Toast.LENGTH_SHORT).show()
                         }

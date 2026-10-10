@@ -78,9 +78,6 @@ class LivePlayActivity : BaseActivity() {
     companion object {
         private const val TAG = "LivePlayActivity"
         private const val SYSBAR_APPEARANCE_REASSERT_DELAY_MS = 400L
-        private const val RESOLUTION_INFO_MAX_RETRY = 10
-        private const val RESOLUTION_INFO_RETRY_DELAY = 300L
-        private const val RESOLUTION_INFO_HIDE_DELAY = 3000L
         private const val OVERLAY_HIDE_DELAY = 6000L
         private const val CONNECT_TIMEOUT_SWITCH_DELAY = 3500L
         private val FORMAT_DATE1 = SimpleDateFormat("MM-dd", Locale.getDefault())
@@ -104,8 +101,6 @@ class LivePlayActivity : BaseActivity() {
     internal var channelVersion by VmVar(LivePlayViewModel::channelVersion)
     internal var epgVersion by VmVar(LivePlayViewModel::epgVersion)
     internal var scrollTick by VmVar(LivePlayViewModel::scrollTick)
-    internal var resolutionText by VmVar(LivePlayViewModel::resolutionText)
-    internal var resolutionVisible by VmVar(LivePlayViewModel::resolutionVisible)
     internal var showTimeOn by VmVar(LivePlayViewModel::showTimeOn)
     internal var showNetSpeedOn by VmVar(LivePlayViewModel::showNetSpeedOn)
     internal var timeText by VmVar(LivePlayViewModel::timeText)
@@ -158,8 +153,6 @@ class LivePlayActivity : BaseActivity() {
     private var playUrl: String? = null
     private var shiyiTimeC = 0
     private var selectedChannelGroupIndex = 0
-    private var resolutionInfoRetryCount = 0
-    private var resolutionInfoPending = false
     private var exitingLivePlay = false
     private var loadingLiveConfigOnEnter = false
     private var liveSettingGroupList: List<LiveSettingGroup> = ArrayList()
@@ -354,11 +347,6 @@ class LivePlayActivity : BaseActivity() {
             VideoView.STATE_PREPARED, VideoView.STATE_BUFFERED, VideoView.STATE_PLAYING -> {
                 hideSwitchChannelSnapshot()
                 currentYspSource?.let(YspLiveResolver::clearFallbacks)
-                if (resolutionInfoPending) {
-                    resolutionInfoRetryCount = 0
-                    mHandler.removeCallbacks(mUpdateResolutionInfoRun)
-                    mHandler.post(mUpdateResolutionInfoRun)
-                }
                 currentLiveChangeSourceTimes = 0
                 allowLiveSwitchPlayer = true
             }
@@ -555,7 +543,6 @@ class LivePlayActivity : BaseActivity() {
         videoView.setEffectiveIjkCodec(livePlayerManager.effectiveIjkCodecName())
         videoView.setUrl(url, liveChannelHeader())
         if (reusePlayer) videoView.replay(true) else videoView.start()
-        showResolutionAfterChannelSwitch()
     }
 
     private fun canReusePlayer(previousLivePlayerType: Int): Boolean {
@@ -1188,49 +1175,6 @@ class LivePlayActivity : BaseActivity() {
     private fun hideSwitchChannelSnapshot() {
         snapshotVisible = false
         snapshotBitmap = null
-    }
-
-    private fun showResolutionAfterChannelSwitch() {
-        resolutionInfoPending = true
-        resolutionInfoRetryCount = 0
-        resolutionText = ""
-        resolutionVisible = false
-        mHandler.removeCallbacks(mHideResolutionInfoRun)
-        mHandler.removeCallbacks(mUpdateResolutionInfoRun)
-        mHandler.postDelayed(mUpdateResolutionInfoRun, RESOLUTION_INFO_RETRY_DELAY)
-    }
-
-    private val mHideResolutionInfoRun = Runnable {
-        resolutionVisible = false
-    }
-
-    private val mUpdateResolutionInfoRun = Runnable {
-        val videoView = mVideoView ?: return@Runnable
-        if (videoView.currentPlayState != VideoView.STATE_PREPARED &&
-            videoView.currentPlayState != VideoView.STATE_BUFFERED &&
-            videoView.currentPlayState != VideoView.STATE_PLAYING
-        ) {
-            retryOrHideResolutionInfo()
-            return@Runnable
-        }
-        val videoSize = videoView.videoSize
-        if (videoSize != null && videoSize.size >= 2 && videoSize[0] > 0 && videoSize[1] > 0) {
-            resolutionInfoPending = false
-            resolutionText = videoSize[0].toString() + " x " + videoSize[1]
-            resolutionVisible = true
-            mHandler.removeCallbacks(mHideResolutionInfoRun)
-            mHandler.postDelayed(mHideResolutionInfoRun, RESOLUTION_INFO_HIDE_DELAY)
-            return@Runnable
-        }
-        retryOrHideResolutionInfo()
-    }
-
-    private fun retryOrHideResolutionInfo() {
-        if (resolutionInfoPending && resolutionInfoRetryCount++ < RESOLUTION_INFO_MAX_RETRY) {
-            mHandler.postDelayed(mUpdateResolutionInfoRun, RESOLUTION_INFO_RETRY_DELAY)
-        } else {
-            resolutionVisible = false
-        }
     }
 
     private fun showTime() {

@@ -89,8 +89,6 @@ internal class LivePlayViewModel : ViewModel() {
     var channelVersion by mutableIntStateOf(0)
     var epgVersion by mutableIntStateOf(0)
     var scrollTick by mutableIntStateOf(0)
-    var resolutionText by mutableStateOf("")
-    var resolutionVisible by mutableStateOf(false)
     var showTimeOn by mutableStateOf(false)
     var showNetSpeedOn by mutableStateOf(false)
     var timeText by mutableStateOf("")

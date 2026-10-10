@@ -166,23 +166,33 @@ public class OfflineVideoCacheTest {
     }
 
     @Test
-    public void durationBasedEstimateScalesObservedBytesToEpisodeDuration() {
-        assertEquals(1_800_000L,
-                OfflineVideoCache.estimateTotalBytesFromDuration(300_000L, 600_000L, 3_600_000L));
-        assertEquals(169_320_000L,
-                OfflineVideoCache.estimateTotalBytesFromDuration(300_000L, 15_000L, 8_466_000L));
-        assertEquals(-1L,
-                OfflineVideoCache.estimateTotalBytesFromDuration(100_000L, 14_999L, 8_466_000L));
-        assertEquals(-1L,
-                OfflineVideoCache.estimateTotalBytesFromDuration(300_000L, 0L, 3_600_000L));
-        assertEquals(-1L,
-                OfflineVideoCache.estimateTotalBytesFromDuration(300_000L, 600_000L, 300_000L));
+    public void segmentEstimateWaitsForEnoughSamplesAndRejectsOutlierSegments() {
+        long[] bytes = {500_000L, 550_000L, 450_000L, 600_000L, 525_000L, 5_000_000L};
+        long[] durations = {5_000L, 5_000L, 5_000L, 5_000L, 5_000L, 5_000L};
+
+        assertEquals(-1L, OfflineVideoCache.estimateTotalBytesFromSegmentSamples(
+                new long[]{500_000L, 550_000L, 450_000L, 600_000L, 525_000L},
+                new long[]{5_000L, 5_000L, 5_000L, 5_000L, 5_000L}, 60_000L));
+        long estimate = OfflineVideoCache.estimateTotalBytesFromSegmentSamples(bytes, durations, 60_000L);
+        assertTrue(estimate > 6_000_000L);
+        assertTrue(estimate < 8_000_000L);
     }
 
     @Test
-    public void transformerEstimateScalesOutputBytesByCompletedProgress() {
-        assertEquals(100_000_000L,
-                OfflineVideoCache.estimateTotalBytesFromProgress(3_000_000L, 3));
+    public void segmentEstimateScalesStableSampleRateToFullDuration() {
+        assertEquals(6_000_000L,
+                OfflineVideoCache.estimateTotalBytesFromSegmentSamples(
+                        new long[]{500_000L, 500_000L, 500_000L, 500_000L, 500_000L, 500_000L},
+                        new long[]{5_000L, 5_000L, 5_000L, 5_000L, 5_000L, 5_000L},
+                        60_000L));
+    }
+
+    @Test
+    public void transformerEstimateWaitsForRepresentativeProgress() {
+        assertEquals(-1L,
+                OfflineVideoCache.estimateTotalBytesFromProgress(3_000_000L, 19));
+        assertEquals(15_000_000L,
+                OfflineVideoCache.estimateTotalBytesFromProgress(3_000_000L, 20));
         assertEquals(-1L,
                 OfflineVideoCache.estimateTotalBytesFromProgress(3_000_000L, 2));
         assertEquals(-1L,

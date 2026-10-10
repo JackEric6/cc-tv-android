@@ -1341,16 +1341,18 @@ public class PlaybackController {
                 if (results != null) {
                     for (DanmuSearchResult result : results) {
                         if (result == null) continue;
-                        int candidateEpisode = DanmuEpisodeMatcher.episodeNumber(result.getName());
-                        if (targetEpisode > 0 && candidateEpisode == targetEpisode) {
-                            matches.add(result);
-                        } else if (targetEpisode <= 0 && !TextUtils.isEmpty(episode)
-                                && result.getName().contains(episode)) {
+                        if (DanmuEpisodeMatcher.matchScore(title, episode, result.getName()) >= 0) {
                             matches.add(result);
                         }
                     }
+                    matches.sort((left, right) -> Integer.compare(
+                            DanmuEpisodeMatcher.matchScore(title, episode, right.getName()),
+                            DanmuEpisodeMatcher.matchScore(title, episode, left.getName())));
                     if (matches.isEmpty() && results.size() == 1 && results.get(0) != null) {
-                        matches.add(results.get(0));
+                        DanmuSearchResult only = results.get(0);
+                        int candidateEpisode = DanmuEpisodeMatcher.episodeNumber(only.getName());
+                        if (targetEpisode <= 0 || candidateEpisode <= 0
+                                || candidateEpisode == targetEpisode) matches.add(only);
                     }
                 }
                 if (matches.isEmpty()) {
