@@ -4,6 +4,7 @@ import android.content.ContextWrapper
 import com.github.tvbox.osc.util.OfflineVideoCache
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -90,5 +91,96 @@ class DownloadPageTest {
         assertEquals(4_000L, estimateTotalBytes(1_000L, 4_000L, 25))
         assertEquals(-1L, estimateTotalBytes(1_000L, -1L, -1))
         assertEquals(-1L, estimateTotalBytes(1_000L, -1L, 100))
+    }
+
+    @Test
+    fun overallProgressIsByteWeightedAndMarksUnknownTasks() {
+        val totals = aggregateDownloadTotals(
+            listOf(
+                DownloadProgressInput(OfflineVideoCache.TaskStatus.DOWNLOADING, 790L, 1_000L, 79),
+                DownloadProgressInput(OfflineVideoCache.TaskStatus.DOWNLOADING, 50L, -1L, 50),
+                DownloadProgressInput(OfflineVideoCache.TaskStatus.QUEUED, 0L, -1L, -1),
+                DownloadProgressInput(OfflineVideoCache.TaskStatus.COMPLETED, 100L, 100L, 100),
+            ),
+        )
+
+        assertEquals(3, totals.unfinishedTasks)
+        assertEquals(1, totals.unknownTasks)
+        assertEquals(840L, totals.downloadedBytes)
+        assertEquals(1_100L, totals.totalBytes)
+        assertEquals(76, totals.progressPercent)
+    }
+
+    @Test
+    fun overallProgressRemainsUnknownWhenNoTaskHasAKnownOrEstimatedSize() {
+        val totals = aggregateDownloadTotals(
+            listOf(
+                DownloadProgressInput(OfflineVideoCache.TaskStatus.DOWNLOADING, 1_000L, -1L, -1),
+                DownloadProgressInput(OfflineVideoCache.TaskStatus.QUEUED, 0L, -1L, -1),
+            ),
+        )
+
+        assertEquals(2, totals.unknownTasks)
+        assertNull(totals.progressPercent)
+    }
+
+    @Test
+    fun overallProgressPrefersDurationBasedSizeEstimate() {
+        val totals = aggregateDownloadTotals(
+            listOf(
+                DownloadProgressInput(
+                    OfflineVideoCache.TaskStatus.DOWNLOADING,
+                    2_000L,
+                    -1L,
+                    10,
+                    estimatedTotalBytes = 20_000L,
+                ),
+            ),
+        )
+
+        assertEquals(20_000L, totals.totalBytes)
+        assertEquals(10, totals.progressPercent)
+    }
+
+    @Test
+    fun remainingTimeUsesRemainingBytesAndCurrentSpeed() {
+        assertEquals(30L, estimateRemainingSeconds(1_000L, 4_000L, 100L))
+        assertEquals(3_601L, estimateRemainingSeconds(0L, 3_601L, 1L))
+        assertEquals(0L, estimateRemainingSeconds(4_000L, 4_000L, 100L))
+        assertNull(estimateRemainingSeconds(1_000L, -1L, 100L))
+        assertNull(estimateRemainingSeconds(1_000L, 4_000L, 0L))
+        assertEquals("2分5秒", formatRemainingTime(125L))
+        assertEquals("1小时1分", formatRemainingTime(3_661L))
+        assertEquals(3_600L, roundRemainingSecondsForDisplay(3_590L))
+        assertEquals(3_300L, roundRemainingSecondsForDisplay(3_280L))
+    }
+
+    @Test
+    fun overallSpeedAggregatesByteDeltasAcrossRollingSamples() {
+        assertEquals(
+            3_000L,
+            overallDownloadSpeed(
+                listOf(
+                    OverallDownloadSpeedSample(1_000_000_000L, 1_000L, 500_000_000L),
+                    OverallDownloadSpeedSample(1_500_000_000L, 2_000L, 500_000_000L),
+                ),
+            ),
+        )
+        assertEquals(0L, overallDownloadSpeed(emptyList()))
+    }
+
+    @Test
+    fun initialSpeedSampleIsIgnoredAndImplausibleRatesAreRejected() {
+        assertTrue(shouldResetSpeedBaseline(baselineReady = false, restarted = false, deltaBytes = 500_000_000L))
+        assertTrue(shouldResetSpeedBaseline(baselineReady = true, restarted = true, deltaBytes = 1024L))
+        assertFalse(shouldResetSpeedBaseline(baselineReady = true, restarted = false, deltaBytes = 1024L))
+        assertEquals(2L * 1024L * 1024L, downloadSpeedSample(1L * 1024L * 1024L, 500_000_000L))
+        assertEquals(0L, downloadSpeedSample(200L * 1024L * 1024L, 500_000_000L))
+        assertEquals(0L, displayedSpeedFor(
+            OfflineVideoCache.TaskStatus.DOWNLOADING,
+            300L * 1024L * 1024L,
+            1_000L,
+            1_500L,
+        ))
     }
 }

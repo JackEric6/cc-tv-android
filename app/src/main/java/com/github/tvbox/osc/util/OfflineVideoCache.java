@@ -77,6 +77,8 @@ public final class OfflineVideoCache {
     // 否则短分片和高速直链在界面上长期显示为 0 B/s。
     private static final long SPEED_MIN_SAMPLE_NS = 50_000_000L;
     private static final int MAX_SPEED_SAMPLES = 24;
+    private static final int DIRECT_DOWNLOAD_ATTEMPTS = 4;
+    private static final long DIRECT_RETRY_BASE_MS = 500L;
     private static final long MAX_FILE_BYTES = 4L * 1024L * 1024L * 1024L;
     /** Shared cap for independent offline downloads across direct, HLS, and transformed media. */
     static final int MAX_ACTIVE_DOWNLOADS = 5;
@@ -117,6 +119,9 @@ public final class OfflineVideoCache {
                 current = OkHttp.client().newBuilder()
                         .dispatcher(dispatcher)
                         .connectionPool(new ConnectionPool(128, 5, java.util.concurrent.TimeUnit.MINUTES))
+                        .connectTimeout(20, TimeUnit.SECONDS)
+                        .readTimeout(45, TimeUnit.SECONDS)
+                        .writeTimeout(20, TimeUnit.SECONDS)
                         .followRedirects(true)
                         .followSslRedirects(true)
                         .retryOnConnectionFailure(true)
@@ -175,7 +180,7 @@ public final class OfflineVideoCache {
 
     /** 取得明确媒体直链的原始扩展名；播放列表和解析页返回空字符串。 */
     static String explicitMediaExtension(String url) {
-        if (TextUtils.isEmpty(url)) return "";
+        if (url == null || url.isEmpty()) return "";
         String value = url.trim();
         if (!(value.startsWith("http://") || value.startsWith("https://"))) return "";
         // 荐片的 P2P 桥接虽然使用 .m3u8 路径，但响应会 302 到 P2P 引擎提供的
@@ -189,6 +194,19 @@ public final class OfflineVideoCache {
                     ".avi", ".wmv", ".mpg", ".mpeg", ".3gp", ".ogv"};
             for (String extension : extensions) {
                 if (path.endsWith(extension)) return extension;
+            }
+            for (String parameter : new String[]{"type", "format", "mime", "content-type"}) {
+                String mediaType = parsed.queryParameter(parameter);
+                if (mediaType == null || mediaType.isEmpty()) continue;
+                String normalized = mediaType.trim().toLowerCase(Locale.ROOT);
+                if (normalized.startsWith("video/")) normalized = normalized.substring("video/".length());
+                for (String extension : extensions) {
+                    String extensionValue = extension.substring(1);
+                    if (normalized.equals(extensionValue)
+                            || normalized.endsWith("/" + extensionValue)) return extension;
+                }
+                if (normalized.equals("x-matroska")) return ".mkv";
+                if (normalized.equals("mpeg2-ts") || normalized.equals("mp2t")) return ".ts";
             }
             return "";
         } catch (Throwable ignored) {
@@ -337,16 +355,28 @@ public final class OfflineVideoCache {
                 if (!target.getParentFile().exists() && !target.getParentFile().mkdirs()) return;
                 long offset = part.isFile() ? Math.max(0, part.length()) : 0;
                 long expectedTotal = -1;
+                long preflightTotal = -1;
+                long rangeProbeTotal = -1;
+                boolean preflightAttempted = false;
                 boolean copied = false;
-                // 最多两次请求：先尝试 Range；服务器忽略 Range 或返回非法范围时，
-                // 清理临时文件并从头下载，避免把重复/错位的字节拼进媒体文件。
-                for (int attempt = 0; attempt < 2 && !handle.cancelled; attempt++) {
+                boolean downloadStarted = false;
+                String lastDownloadError = "下载未完成";
+                // 临时网络错误与服务端短响应有限重试；有 Range 时续传，Range 被忽略时才清理重下。
+                for (int attempt = 0; attempt < DIRECT_DOWNLOAD_ATTEMPTS && !handle.cancelled; attempt++) {
+                    offset = part.isFile() ? Math.max(0L, part.length()) : 0L;
                     // 对支持 Range 的大文件先使用分段并发下载；不支持 Range 或无法探测
                     // 总长度时返回 false，继续走下面的 iOS 风格单任务断点续传。
                     if (offset == 0L && ENABLE_DIRECT_PARALLEL) {
+                        if (!preflightAttempted) {
+                            rangeProbeTotal = probeRangeLength(normalizedRemoteUrl, safeHeaders, handle);
+                            preflightTotal = rangeProbeTotal > 0L
+                                    ? rangeProbeTotal
+                                    : probeHeadLength(normalizedRemoteUrl, safeHeaders, handle);
+                            preflightAttempted = true;
+                        }
                         ParallelDownloadResult parallel = tryParallelDirectDownload(
                                 context, key, normalizedRemoteUrl, safeHeaders, target,
-                                part, handle);
+                                part, handle, rangeProbeTotal);
                         if (parallel == ParallelDownloadResult.COMPLETED) return;
                         if (parallel == ParallelDownloadResult.CANCELLED) return;
                         if (parallel == ParallelDownloadResult.FAILED) {
@@ -384,22 +414,35 @@ public final class OfflineVideoCache {
                                 }
                                 return;
                             }
+                            if (part.exists() && !part.delete()) {
+                                markFailed(context, key, "无法重置临时缓存", handle);
+                                return;
+                            }
+                            if (attempt + 1 < DIRECT_DOWNLOAD_ATTEMPTS) continue;
+                            lastDownloadError = "服务器拒绝断点续传";
+                            break;
+                        }
+                        if (!response.isSuccessful() || response.body() == null) {
+                            lastDownloadError = "网络响应无效 (HTTP " + response.code() + ")";
+                            if (isRetryableHttpStatus(response.code())
+                                    && attempt + 1 < DIRECT_DOWNLOAD_ATTEMPTS) {
+                                response.close();
+                                if (!waitBeforeDirectRetry(handle, attempt)) return;
+                                continue;
+                            }
+                            markFailed(context, key, lastDownloadError, handle);
+                            return;
                         }
                         boolean append = wantsRange && acceptsRange(response, offset);
                         if (wantsRange && !append) {
                             // 200 表示服务端忽略 Range；206 但起始位置不一致也不能追加。
-                            if (attempt == 0) {
-                                if (part.exists() && !part.delete()) {
-                                    markFailed(context, key, "无法重置临时缓存", handle);
-                                    return;
-                                }
-                                offset = 0;
-                                continue;
+                            if (part.exists() && !part.delete()) {
+                                markFailed(context, key, "无法重置临时缓存", handle);
+                                return;
                             }
-                        }
-                        if (!response.isSuccessful() || response.body() == null) {
-                            markFailed(context, key, "网络响应无效", handle);
-                            return;
+                            if (attempt + 1 < DIRECT_DOWNLOAD_ATTEMPTS) continue;
+                            lastDownloadError = "服务器不支持有效的断点续传";
+                            break;
                         }
                         String contentType = response.header("Content-Type", "");
                         if (isRejectedContentType(contentType)) {
@@ -407,17 +450,22 @@ public final class OfflineVideoCache {
                             return;
                         }
                         long bodyLength = response.body().contentLength();
-                        long rangeTotal = append ? contentRangeTotal(response) : -1;
-                        expectedTotal = rangeTotal > 0
-                                ? rangeTotal
-                                : (bodyLength > 0 ? (append ? offset + bodyLength : bodyLength) : -1);
+                        long responseRangeTotal = append ? contentRangeTotal(response) : -1;
+                        long responseTotal = responseRangeTotal > 0
+                                ? responseRangeTotal
+                                : (bodyLength > 0 ? (append ? offset + bodyLength : bodyLength)
+                                : preflightTotal);
+                        if (responseTotal > 0) expectedTotal = responseTotal;
                         if (isJianpianDownloadUrl(normalizedRemoteUrl)) {
                             // P2P 原生缓存可能已经先于本地 HTTP 复制器写入 .ybbk；
                             // 不能用普通新任务路径把这部分真实进度清零。
                             markDownloadingForResume(context, key, expectedTotal, handle);
+                        } else if (downloadStarted) {
+                            markDownloadingForResume(context, key, expectedTotal, handle);
                         } else {
                             markDownloading(context, key, expectedTotal, handle);
                         }
+                        downloadStarted = true;
                         if (append && offset > 0) {
                             markProgress(context, key, offset, expectedTotal, true, handle);
                         }
@@ -428,13 +476,42 @@ public final class OfflineVideoCache {
                             return;
                         }
                         offset = part.isFile() ? part.length() : 0;
+                        if (offset > MAX_FILE_BYTES) {
+                            markFailed(context, key, "缓存文件超过大小限制", handle);
+                            return;
+                        }
+                        if (expectedTotal > 0 && offset < expectedTotal) {
+                            copied = false;
+                            lastDownloadError = "服务器提前结束了响应，正在续传";
+                            if (attempt + 1 < DIRECT_DOWNLOAD_ATTEMPTS) {
+                                response.close();
+                                if (!waitBeforeDirectRetry(handle, attempt)) return;
+                                continue;
+                            }
+                            break;
+                        }
+                        if (expectedTotal > 0 && offset > expectedTotal) {
+                            markFailed(context, key, "下载文件长度超过服务器声明大小", handle);
+                            return;
+                        }
+                        copied = true;
+                        break;
+                    } catch (IOException networkError) {
+                        lastDownloadError = TextUtils.isEmpty(networkError.getMessage())
+                                ? "网络连接中断" : networkError.getMessage();
+                        copied = false;
+                        if (attempt + 1 >= DIRECT_DOWNLOAD_ATTEMPTS) {
+                            markFailed(context, key, lastDownloadError, handle);
+                            return;
+                        }
+                        if (!waitBeforeDirectRetry(handle, attempt)) return;
                     } finally {
                         handle.unregisterCall(call);
                         handle.call = null;
                     }
                 }
                 if (!copied) {
-                    if (!handle.cancelled) markFailed(context, key, "下载未完成", handle);
+                    if (!handle.cancelled) markFailed(context, key, lastDownloadError, handle);
                     return;
                 }
                 if (handle.cancelled) {
@@ -515,12 +592,11 @@ public final class OfflineVideoCache {
      */
     private static ParallelDownloadResult tryParallelDirectDownload(
             Context context, String key, String url, Map<String, String> headers,
-            File target, File part, DownloadHandle handle) {
+            File target, File part, DownloadHandle handle, long totalBytes) {
         if (handle == null || handle.cancelled || part.isFile() || target == null) {
             return handle != null && handle.cancelled
                     ? ParallelDownloadResult.CANCELLED : ParallelDownloadResult.FALLBACK;
         }
-        long totalBytes = probeRangeLength(url, headers, handle);
         if (totalBytes < DIRECT_PARALLEL_MIN_BYTES || totalBytes > MAX_FILE_BYTES) {
             return handle.cancelled ? ParallelDownloadResult.CANCELLED : ParallelDownloadResult.FALLBACK;
         }
@@ -671,6 +747,44 @@ public final class OfflineVideoCache {
             return -1L;
         } finally {
             if (call != null) handle.unregisterCall(call);
+        }
+    }
+
+    private static long probeHeadLength(String url, Map<String, String> headers,
+                                        DownloadHandle handle) {
+        Call call = null;
+        try {
+            Request.Builder builder = new Request.Builder().url(url).head();
+            Headers.Builder headerBuilder = new Headers.Builder();
+            if (headers != null) {
+                for (Map.Entry<String, String> entry : headers.entrySet()) {
+                    if (!TextUtils.isEmpty(entry.getKey()) && entry.getValue() != null) {
+                        try { headerBuilder.add(entry.getKey(), entry.getValue()); }
+                        catch (Throwable ignored) { }
+                    }
+                }
+            }
+            headerBuilder.set("Accept-Encoding", "identity");
+            builder.headers(headerBuilder.build());
+            call = downloadClient().newCall(builder.build());
+            handle.registerCall(call);
+            try (Response response = call.execute()) {
+                return parsePositiveContentLength(response.header("Content-Length", ""));
+            }
+        } catch (Throwable ignored) {
+            return -1L;
+        } finally {
+            if (call != null) handle.unregisterCall(call);
+        }
+    }
+
+    static long parsePositiveContentLength(String value) {
+        if (value == null || value.trim().isEmpty()) return -1L;
+        try {
+            long length = Long.parseLong(value.trim());
+            return length > 0L ? length : -1L;
+        } catch (NumberFormatException ignored) {
+            return -1L;
         }
     }
 
@@ -900,6 +1014,24 @@ public final class OfflineVideoCache {
                 || lower.contains("mpegurl") || lower.contains("dash+xml");
     }
 
+    static boolean isRetryableHttpStatus(int statusCode) {
+        return statusCode == 408 || statusCode == 425 || statusCode == 429
+                || statusCode == 500 || statusCode == 502 || statusCode == 503
+                || statusCode == 504;
+    }
+
+    private static boolean waitBeforeDirectRetry(DownloadHandle handle, int attempt) {
+        if (handle == null || handle.cancelled) return false;
+        long delay = Math.min(4_000L, DIRECT_RETRY_BASE_MS * (1L << Math.min(attempt, 3)));
+        try {
+            Thread.sleep(delay);
+            return !handle.cancelled;
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
     static File targetFile(Context context, String key) {
         return targetFile(context, key, null);
     }
@@ -1082,6 +1214,7 @@ public final class OfflineVideoCache {
                 // 新一轮下载不能沿用上一次任务的字节数、总量或百分比。
                 task.downloadedBytes = 0;
                 task.totalBytes = totalBytes > 0 ? totalBytes : -1;
+                task.estimatedTotalBytes = -1;
                 task.progressPercent = -1;
                 task.speedBytesPerSecond = 0;
             }
@@ -1102,7 +1235,10 @@ public final class OfflineVideoCache {
             TaskRecord task = TASKS.get(id);
             if (task == null || !isCurrentHandle(id, handle)) return;
             task.status = TaskStatus.DOWNLOADING;
-            if (totalBytes > 0) task.totalBytes = totalBytes;
+            if (totalBytes > 0) {
+                task.totalBytes = totalBytes;
+                task.estimatedTotalBytes = -1;
+            }
             else if (task.totalBytes < 0) task.totalBytes = -1;
             if (task.downloadedBytes <= 0) task.progressPercent = -1;
             else if (task.progressPercent > 99) task.progressPercent = 99;
@@ -1170,6 +1306,7 @@ public final class OfflineVideoCache {
             if (totalComplete && totalBytes > 0) stableTotal = totalBytes;
             boolean totalRecalibrated = totalComplete && stableTotal > 0
                     && stableTotal != previousTotal;
+            if (totalComplete && stableTotal > 0) task.estimatedTotalBytes = -1;
             task.status = TaskStatus.DOWNLOADING;
             task.downloadedBytes = stableDownloaded;
             task.totalBytes = stableTotal;
@@ -1288,6 +1425,55 @@ public final class OfflineVideoCache {
         notifyListeners(context);
     }
 
+    static void markSegmentProgressByDuration(Context context, String id, int completedSegments,
+                                             int totalSegments, long downloadedBytes,
+                                             long completedDurationMs, long totalDurationMs,
+                                             long completedBytes,
+                                             @Nullable DownloadHandle handle) {
+        markProgress(context, id, downloadedBytes, -1L, false, handle);
+        if (context == null || TextUtils.isEmpty(id) || totalSegments <= 0
+                || completedDurationMs <= 0L || totalDurationMs <= 0L
+                || completedDurationMs > totalDurationMs) {
+            markSegmentProgress(context, id, completedSegments, totalSegments,
+                    downloadedBytes, handle);
+            return;
+        }
+        long candidateTotal = estimateTotalBytesFromDuration(
+                completedBytes, completedDurationMs, totalDurationMs);
+        if (!isCurrentHandle(id, handle)) return;
+        ensureTasksLoaded(context);
+        synchronized (TASK_LOCK) {
+            TaskRecord task = TASKS.get(id);
+            if (task == null || !isCurrentHandle(id, handle) || task.status == TaskStatus.PAUSED
+                    || task.status == TaskStatus.CANCELLED || task.status == TaskStatus.FAILED
+                    || task.status == TaskStatus.COMPLETED) return;
+            int safePercent = (int) Math.min(99L,
+                    Math.max(0L, completedDurationMs * 100L / totalDurationMs));
+            task.progressPercent = Math.max(task.progressPercent, safePercent);
+            if (task.totalBytes <= 0L && candidateTotal > 0L) {
+                task.estimatedTotalBytes = smoothEstimatedTotalBytes(
+                        task.estimatedTotalBytes, candidateTotal);
+            }
+            task.updatedAt = Math.max(System.currentTimeMillis(), task.updatedAt + 1L);
+            persistTasksLocked();
+        }
+        notifyListeners(context);
+    }
+
+    static long estimateTotalBytesFromDuration(long completedBytes, long completedDurationMs,
+                                               long totalDurationMs) {
+        if (completedBytes <= 0L || completedDurationMs <= 0L
+                || totalDurationMs < completedDurationMs) return -1L;
+        double estimate = completedBytes * (double) totalDurationMs / completedDurationMs;
+        if (!Double.isFinite(estimate) || estimate <= 0.0 || estimate > MAX_FILE_BYTES) return -1L;
+        return Math.max(completedBytes, Math.round(estimate));
+    }
+
+    private static long smoothEstimatedTotalBytes(long previous, long candidate) {
+        if (previous <= 0L) return candidate;
+        return Math.max(1L, Math.round(previous * 0.75 + candidate * 0.25));
+    }
+
     /** Media3 Transformer 只提供百分比，不提供文件总字节数；保留真实字节速度并单独更新百分比。 */
     static void markTransformerProgress(Context context, String id, int progressPercent) {
         markTransformerProgress(context, id, progressPercent, null);
@@ -1356,6 +1542,7 @@ public final class OfflineVideoCache {
             task.status = TaskStatus.COMPLETED;
             task.downloadedBytes = finalBytes;
             task.totalBytes = finalBytes;
+            task.estimatedTotalBytes = -1L;
             task.progressPercent = 100;
             task.speedBytesPerSecond = 0;
             task.errorMessage = "";
@@ -1882,6 +2069,7 @@ public final class OfflineVideoCache {
         private final TaskStatus status;
         private final long downloadedBytes;
         private final long totalBytes;
+        private final long estimatedTotalBytes;
         private final int progressPercent;
         private final String errorMessage;
         private final long updatedAt;
@@ -1901,6 +2089,7 @@ public final class OfflineVideoCache {
             status = task.status;
             downloadedBytes = task.downloadedBytes;
             totalBytes = task.totalBytes;
+            estimatedTotalBytes = task.estimatedTotalBytes;
             progressPercent = task.progressPercent;
             errorMessage = task.errorMessage;
             updatedAt = task.updatedAt;
@@ -1920,6 +2109,7 @@ public final class OfflineVideoCache {
         public TaskStatus getStatus() { return status; }
         public long getDownloadedBytes() { return downloadedBytes; }
         public long getTotalBytes() { return totalBytes; }
+        public long getEstimatedTotalBytes() { return estimatedTotalBytes; }
         public String getErrorMessage() { return errorMessage; }
         public long getUpdatedAt() { return updatedAt; }
         public long getSpeedBytesPerSecond() { return speedBytesPerSecond; }
@@ -1947,6 +2137,7 @@ public final class OfflineVideoCache {
         TaskStatus status = TaskStatus.QUEUED;
         long downloadedBytes;
         long totalBytes = -1;
+        long estimatedTotalBytes = -1;
         int progressPercent = -1;
         String errorMessage = "";
         long updatedAt;
@@ -1970,6 +2161,7 @@ public final class OfflineVideoCache {
                 json.put("status", status.name());
                 json.put("downloadedBytes", downloadedBytes);
                 json.put("totalBytes", totalBytes);
+                json.put("estimatedTotalBytes", estimatedTotalBytes);
                 json.put("progressPercent", progressPercent);
                 json.put("errorMessage", errorMessage);
                 json.put("updatedAt", updatedAt);
@@ -2004,6 +2196,7 @@ public final class OfflineVideoCache {
             catch (Throwable ignored) { task.status = TaskStatus.FAILED; }
             task.downloadedBytes = json.optLong("downloadedBytes", 0);
             task.totalBytes = json.optLong("totalBytes", -1);
+            task.estimatedTotalBytes = json.optLong("estimatedTotalBytes", -1);
             task.progressPercent = json.optInt("progressPercent", -1);
             if (task.progressPercent < -1) task.progressPercent = -1;
             task.errorMessage = json.optString("errorMessage", "");

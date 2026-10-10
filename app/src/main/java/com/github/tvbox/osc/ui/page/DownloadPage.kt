@@ -65,6 +65,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.ArrayDeque
+import kotlin.math.ceil
 import kotlin.math.roundToLong
 
 /** 在下载页和主界面下载标签复用同一套本地缓存播放入口。 */
@@ -143,6 +144,49 @@ internal fun shouldRefreshBoundContext(
 internal fun downloadTabIsCurrent(currentTab: Int, downloadTab: Int): Boolean =
     currentTab == downloadTab
 
+internal data class DownloadProgressInput(
+    val status: OfflineVideoCache.TaskStatus,
+    val downloadedBytes: Long,
+    val totalBytes: Long,
+    val progressPercent: Int,
+    val estimatedTotalBytes: Long = -1L,
+)
+
+internal data class OverallDownloadTotals(
+    val unfinishedTasks: Int,
+    val unknownTasks: Int,
+    val downloadedBytes: Long,
+    val totalBytes: Long,
+) {
+    val progressPercent: Int?
+        get() = if (totalBytes <= 0L) null else
+            (downloadedBytes.toDouble() * 100.0 / totalBytes).toInt().coerceIn(0, 99)
+}
+
+internal fun aggregateDownloadTotals(tasks: List<DownloadProgressInput>): OverallDownloadTotals {
+    var unfinished = 0
+    var unknown = 0
+    var downloaded = 0L
+    var total = 0L
+    for (task in tasks) {
+        if (task.status != OfflineVideoCache.TaskStatus.QUEUED &&
+            task.status != OfflineVideoCache.TaskStatus.DOWNLOADING
+        ) continue
+        unfinished++
+        val currentBytes = task.downloadedBytes.coerceAtLeast(0L)
+        val taskTotal = estimateTotalBytes(
+            currentBytes, task.totalBytes, task.progressPercent, task.estimatedTotalBytes,
+        )
+        if (taskTotal <= 0L) {
+            unknown++
+        } else {
+            downloaded += currentBytes
+            total += taskTotal
+        }
+    }
+    return OverallDownloadTotals(unfinished, unknown, downloaded, total)
+}
+
 @Composable
 fun DownloadPage(
     vm: DownloadViewModel = viewModel(),
@@ -159,12 +203,14 @@ fun DownloadPage(
     val listState = rememberLazyListState()
     var previousHeadId by remember { mutableStateOf<String?>(null) }
     var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var showDeleteConfirmation by remember { mutableStateOf(false) }
+    var editMode by remember { mutableStateOf(false) }
+    var deleteConfirmationIds by remember { mutableStateOf<Set<String>?>(null) }
     val taskIds = tasks.mapTo(linkedSetOf()) { it.id }
     val allSelected = taskIds.isNotEmpty() && selectedIds.containsAll(taskIds)
 
     LaunchedEffect(taskIds) {
         selectedIds = selectedIds.intersect(taskIds)
+        if (taskIds.isEmpty()) editMode = false
     }
 
     DisposableEffect(vm, context) {
@@ -194,20 +240,42 @@ fun DownloadPage(
     AppTopBarScaffold(
         topBarStartInset = navStart,
         titleContent = {
-            Text("下载", style = MaterialTheme.typography.headlineSmall)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("下载", style = MaterialTheme.typography.headlineSmall)
+                Spacer(Modifier.width(20.dp))
+                OverallDownloadSummary(
+                    context = context,
+                    modifier = Modifier.weight(1f),
+                )
+            }
         },
         actions = {
             if (tasks.isNotEmpty()) {
-                TextButton(onClick = {
-                    selectedIds = if (allSelected) emptySet() else taskIds
-                }) {
-                    Text(if (allSelected) "取消全选" else "全选")
-                }
-                TextButton(
-                    enabled = selectedIds.isNotEmpty(),
-                    onClick = { showDeleteConfirmation = true },
-                ) {
-                    Text("删除${selectedIds.size.takeIf { it > 0 }?.let { "($it)" } ?: ""}")
+                if (editMode) {
+                    TextButton(onClick = {
+                        selectedIds = if (allSelected) emptySet() else taskIds
+                    }) {
+                        Text(if (allSelected) "取消全选" else "全选")
+                    }
+                    TextButton(
+                        enabled = selectedIds.isNotEmpty(),
+                        onClick = { deleteConfirmationIds = selectedIds },
+                    ) {
+                        Text("删除${selectedIds.size.takeIf { it > 0 }?.let { "($it)" } ?: ""}")
+                    }
+                    TextButton(onClick = {
+                        editMode = false
+                        selectedIds = emptySet()
+                    }) {
+                        Text("完成")
+                    }
+                } else {
+                    TextButton(onClick = { editMode = true }) {
+                        Text("编辑")
+                    }
                 }
             }
         },
@@ -241,32 +309,137 @@ fun DownloadPage(
                             task = task,
                             vm = vm,
                             onPlay = onPlay,
+                            editMode = editMode,
                             selected = task.id in selectedIds,
                             onSelectedChange = { selected ->
                                 selectedIds = if (selected) selectedIds + task.id else selectedIds - task.id
                             },
+                            onDeleteRequest = { deleteConfirmationIds = setOf(task.id) },
                         )
                     }
                 }
             }
         }
     }
-    if (showDeleteConfirmation) {
+    val pendingDeleteIds = deleteConfirmationIds
+    if (pendingDeleteIds != null) {
         AlertDialog(
-            onDismissRequest = { showDeleteConfirmation = false },
-            title = { Text("删除下载") },
-            text = { Text("将删除选中的 ${selectedIds.size} 个下载任务及其本地缓存文件，此操作不可恢复。") },
+            onDismissRequest = { deleteConfirmationIds = null },
+            title = { Text("确认删除？") },
+            text = {
+                val count = pendingDeleteIds.size
+                Text("将删除${if (count == 1) "此" else "选中的 $count 个"}下载任务及其本地缓存文件，此操作不可恢复。")
+            },
             confirmButton = {
                 TextButton(onClick = {
-                    vm.deleteAll(selectedIds)
-                    selectedIds = emptySet()
-                    showDeleteConfirmation = false
+                    vm.deleteAll(pendingDeleteIds)
+                    selectedIds = selectedIds - pendingDeleteIds
+                    deleteConfirmationIds = null
                 }) { Text("删除") }
             },
             dismissButton = {
-                TextButton(onClick = { showDeleteConfirmation = false }) { Text("取消") }
+                TextButton(onClick = { deleteConfirmationIds = null }) { Text("取消") }
             },
         )
+    }
+}
+
+@Composable
+private fun OverallDownloadSummary(
+    context: Context,
+    modifier: Modifier = Modifier,
+) {
+    var totals by remember {
+        mutableStateOf(OverallDownloadTotals(0, 0, 0L, 0L))
+    }
+    var speedBytesPerSecond by remember { mutableLongStateOf(0L) }
+
+    LaunchedEffect(context) {
+        var previousActiveBytes = emptyMap<String, Long>()
+        var previousAtNanos = 0L
+        val speedSamples = ArrayDeque<OverallDownloadSpeedSample>()
+        while (isActive) {
+            val snapshots = withContext(Dispatchers.IO) {
+                OfflineVideoCache.getTaskSnapshots(context.applicationContext)
+            }
+            val activeBytes = snapshots.asSequence()
+                .filter { it.status == OfflineVideoCache.TaskStatus.DOWNLOADING }
+                .associate { it.id to it.downloadedBytes.coerceAtLeast(0L) }
+            val nowNanos = System.nanoTime()
+            if (previousAtNanos > 0L && activeBytes.isNotEmpty()) {
+                val elapsedNanos = nowNanos - previousAtNanos
+                val deltaBytes = activeBytes.entries.sumOf { (id, bytes) ->
+                    (bytes - (previousActiveBytes[id] ?: bytes)).coerceAtLeast(0L)
+                }
+                if (elapsedNanos in 1L..OVERALL_SPEED_WINDOW_NANOS) {
+                    speedSamples.addLast(OverallDownloadSpeedSample(nowNanos, deltaBytes, elapsedNanos))
+                }
+            }
+            if (activeBytes.isEmpty()) speedSamples.clear()
+            while (speedSamples.isNotEmpty()
+                && nowNanos - speedSamples.first().atNanos > OVERALL_SPEED_WINDOW_NANOS
+            ) speedSamples.removeFirst()
+            speedBytesPerSecond = if (activeBytes.isEmpty()) 0L
+                else overallDownloadSpeed(speedSamples.toList())
+            previousActiveBytes = activeBytes
+            previousAtNanos = nowNanos
+            totals = aggregateDownloadTotals(snapshots.map {
+                DownloadProgressInput(
+                    status = it.status,
+                    downloadedBytes = it.downloadedBytes,
+                    totalBytes = it.totalBytes,
+                    progressPercent = it.progressPercent,
+                    estimatedTotalBytes = it.estimatedTotalBytes,
+                )
+            })
+            kotlinx.coroutines.delay(DOWNLOAD_UI_REFRESH_MS)
+        }
+    }
+
+    if (totals.unfinishedTasks == 0) return
+    val remainingSeconds = if (totals.unknownTasks == 0) {
+        estimateRemainingSeconds(
+            totals.downloadedBytes,
+            totals.totalBytes,
+            speedBytesPerSecond,
+        )?.let(::roundRemainingSecondsForDisplay)
+    } else null
+    val progressPercent = totals.progressPercent
+    Column(
+        modifier = modifier.padding(end = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Text(
+            text = buildString {
+                append("总进度 ")
+                append(progressPercent?.let { "$it%" } ?: "计算中")
+                append("  ·  总剩余 ")
+                append(remainingSeconds?.let(::formatRemainingTime) ?: "计算中")
+            },
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = buildString {
+                append("总下载速度 ")
+                append(if (speedBytesPerSecond > 0L) formatDownloadSpeed(speedBytesPerSecond) else "计算中")
+                if (totals.unknownTasks > 0) append("  ·  ${totals.unknownTasks}项待估")
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (progressPercent != null) {
+            LinearProgressIndicator(
+                progress = { progressPercent / 100f },
+                modifier = Modifier.fillMaxWidth().height(3.dp),
+            )
+        } else {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(3.dp))
+        }
     }
 }
 
@@ -275,8 +448,10 @@ private fun DownloadTaskRow(
     task: OfflineVideoCache.TaskSnapshot,
     vm: DownloadViewModel,
     onPlay: ((OfflineVideoCache.TaskSnapshot) -> Unit)?,
+    editMode: Boolean,
     selected: Boolean,
     onSelectedChange: (Boolean) -> Unit,
+    onDeleteRequest: () -> Unit,
 ) {
     val context = LocalContext.current
     var liveTask by remember(task.id) { mutableStateOf(task) }
@@ -316,7 +491,7 @@ private fun DownloadTaskRow(
         displayedTotalBytes
     }
     val visibleSpeed = if (displayedSpeed > 0L) displayedSpeed else {
-        currentTask.speedBytesPerSecond.coerceAtLeast(0L)
+        sanitizeDisplaySpeed(currentTask.speedBytesPerSecond)
     }
 
     // TaskListener 的回调频率受下载核心节流影响，不能作为下载页唯一的数据源。
@@ -327,6 +502,7 @@ private fun DownloadTaskRow(
         var previousDownloadedBytes = currentTask.downloadedBytes.coerceAtLeast(0L)
         var previousSampleAtNanos = System.nanoTime()
         var lastProgressAtNanos = previousSampleAtNanos
+        var speedBaselineReady = false
         val speedSamples = ArrayDeque<Long>(DOWNLOAD_SPEED_SAMPLE_COUNT)
         while (isActive) {
             val snapshot = withContext(Dispatchers.IO) {
@@ -347,6 +523,7 @@ private fun DownloadTaskRow(
                 if (current.status == OfflineVideoCache.TaskStatus.COMPLETED) {
                     displayedPercent = 100
                     displayedSpeed = 0L
+                    speedBaselineReady = false
                     speedSamples.clear()
                 } else if (active) {
                     // 总量重新校准或暂时未知时，必须接受新值，不能把旧的 99% 留在界面上。
@@ -355,14 +532,25 @@ private fun DownloadTaskRow(
                     val elapsedNanos = nowNanos - previousSampleAtNanos
                     val deltaBytes = currentBytes - previousDownloadedBytes
                     val stalled = nowNanos - lastProgressAtNanos > DOWNLOAD_SPEED_STALE_NANOS
-                    if (deltaBytes > 0L && elapsedNanos > 0L) {
+                    if (shouldResetSpeedBaseline(speedBaselineReady, restarted, deltaBytes)) {
+                        // 首次看到任务时，已有的 .part/P2P 字节不是本采样周期内下载的。
+                        speedBaselineReady = true
+                        displayedSpeed = 0L
+                        speedSamples.clear()
+                        previousDownloadedBytes = currentBytes
+                        previousSampleAtNanos = nowNanos
+                        lastProgressAtNanos = nowNanos
+                    } else if (deltaBytes > 0L && elapsedNanos > 0L) {
                         if (stalled) speedSamples.clear()
-                        val speedSample = bytesPerSecond(deltaBytes, elapsedNanos)
+                        val speedSample = downloadSpeedSample(deltaBytes, elapsedNanos)
                         if (speedSample > 0L) {
                             speedSamples.addLast(speedSample)
                             while (speedSamples.size > DOWNLOAD_SPEED_SAMPLE_COUNT) speedSamples.removeFirst()
                             displayedSpeed = speedSamples.average().roundToLong().coerceAtLeast(0L)
                             lastProgressAtNanos = nowNanos
+                        } else {
+                            displayedSpeed = 0L
+                            speedSamples.clear()
                         }
                     } else if (stalled) {
                         displayedSpeed = 0L
@@ -370,13 +558,16 @@ private fun DownloadTaskRow(
                     }
                     if (displayedSpeed <= 0L && current.speedBytesPerSecond > 0L
                         && nowNanos - lastProgressAtNanos <= DOWNLOAD_SPEED_STALE_NANOS) {
-                        displayedSpeed = current.speedBytesPerSecond
+                        displayedSpeed = sanitizeDisplaySpeed(current.speedBytesPerSecond)
                     }
-                    previousDownloadedBytes = currentBytes
-                    previousSampleAtNanos = nowNanos
+                    if (speedBaselineReady) {
+                        previousDownloadedBytes = currentBytes
+                        previousSampleAtNanos = nowNanos
+                    }
                 } else {
                     // 暂停、失败和取消都必须停止速度显示，不能残留上一轮速度。
                     displayedSpeed = 0L
+                    speedBaselineReady = false
                     speedSamples.clear()
                     previousDownloadedBytes = currentBytes
                     previousSampleAtNanos = nowNanos
@@ -392,11 +583,13 @@ private fun DownloadTaskRow(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        Checkbox(
-            checked = selected,
-            onCheckedChange = onSelectedChange,
-            modifier = Modifier.padding(top = 2.dp),
-        )
+        if (editMode) {
+            Checkbox(
+                checked = selected,
+                onCheckedChange = onSelectedChange,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
         Column(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -461,6 +654,7 @@ private fun DownloadTaskRow(
                 visibleDownloadedBytes,
                 visibleTotalBytes,
                 percent,
+                currentTask.estimatedTotalBytes,
             )
             Text(
                 text = formatDownloadSize(visibleDownloadedBytes, visibleTotalBytes, estimatedTotalBytes),
@@ -469,6 +663,21 @@ private fun DownloadTaskRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (active) {
+                val remainingSeconds = estimateRemainingSeconds(
+                    visibleDownloadedBytes,
+                    estimatedTotalBytes,
+                    visibleSpeed,
+                )
+                Text(
+                    text = remainingSeconds?.let { "预计剩余 ${formatRemainingTime(it)}" }
+                        ?: "预计剩余时间计算中",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         } else {
             Text(
                 text = when (currentTask.status) {
@@ -503,8 +712,9 @@ private fun DownloadTaskRow(
             if (currentTask.status == OfflineVideoCache.TaskStatus.COMPLETED && onPlay != null) {
                 OutlinedButton(onClick = { onPlay(currentTask) }) { Text("播放") }
             }
-            if (currentTask.status != OfflineVideoCache.TaskStatus.DOWNLOADING && currentTask.status != OfflineVideoCache.TaskStatus.QUEUED) {
-                OutlinedButton(onClick = { vm.delete(currentTask) }) { Text("删除") }
+            if (!editMode && currentTask.status != OfflineVideoCache.TaskStatus.DOWNLOADING
+                && currentTask.status != OfflineVideoCache.TaskStatus.QUEUED) {
+                OutlinedButton(onClick = onDeleteRequest) { Text("删除") }
             }
         }
         }
@@ -537,27 +747,88 @@ private fun formatByteCount(bytes: Long): String {
     return "${(bytes / (1024.0 * 1024.0 * 1024.0)).formatSpeedDecimal()} GB"
 }
 
-internal fun estimateTotalBytes(downloadedBytes: Long, totalBytes: Long, percent: Int): Long {
+internal fun estimateTotalBytes(
+    downloadedBytes: Long,
+    totalBytes: Long,
+    percent: Int,
+    explicitEstimateBytes: Long = -1L,
+): Long {
     if (totalBytes > 0L) return totalBytes
+    if (explicitEstimateBytes > 0L) return maxOf(downloadedBytes, explicitEstimateBytes)
     if (downloadedBytes <= 0L || percent !in 1..99) return -1L
     return (downloadedBytes * 100L / percent).coerceAtLeast(downloadedBytes)
+}
+
+internal data class OverallDownloadSpeedSample(
+    val atNanos: Long,
+    val downloadedBytes: Long,
+    val elapsedNanos: Long,
+)
+
+internal fun overallDownloadSpeed(samples: List<OverallDownloadSpeedSample>): Long {
+    val bytes = samples.sumOf { it.downloadedBytes.coerceAtLeast(0L) }
+    val elapsedNanos = samples.sumOf { it.elapsedNanos.coerceAtLeast(0L) }
+    if (bytes <= 0L || elapsedNanos <= 0L) return 0L
+    val speed = (bytes.toDouble() * 1_000_000_000.0 / elapsedNanos).roundToLong()
+    return speed.coerceIn(0L, MAX_TOTAL_DISPLAY_SPEED_BYTES_PER_SECOND)
+}
+
+internal fun roundRemainingSecondsForDisplay(seconds: Long): Long {
+    val interval = when {
+        seconds >= 3_600L -> 300L
+        seconds >= 600L -> 60L
+        seconds >= 120L -> 30L
+        else -> 10L
+    }
+    return ((seconds.coerceAtLeast(0L) + interval / 2L) / interval) * interval
+}
+
+internal fun estimateRemainingSeconds(
+    downloadedBytes: Long,
+    totalBytes: Long,
+    speedBytesPerSecond: Long,
+): Long? {
+    if (downloadedBytes < 0L || totalBytes <= 0L || speedBytesPerSecond <= 0L) return null
+    if (downloadedBytes >= totalBytes) return 0L
+    return ceil((totalBytes - downloadedBytes).toDouble() / speedBytesPerSecond)
+        .toLong()
+        .coerceAtLeast(1L)
+}
+
+internal fun formatRemainingTime(seconds: Long): String {
+    val remaining = seconds.coerceAtLeast(0L)
+    if (remaining < 60L) return "${remaining}秒"
+    if (remaining < 3_600L) return "${remaining / 60L}分${remaining % 60L}秒"
+    return "${remaining / 3_600L}小时${remaining % 3_600L / 60L}分"
 }
 
 private fun Int.coerceInOrUnknown(): Int = if (this < 0) -1 else coerceIn(0, 100)
 
 private fun Double.formatSpeedDecimal(): String = String.format(java.util.Locale.US, "%.1f", this)
 
-private fun bytesPerSecond(deltaBytes: Long, elapsedNanos: Long): Long {
+internal fun shouldResetSpeedBaseline(
+    baselineReady: Boolean,
+    restarted: Boolean,
+    deltaBytes: Long,
+): Boolean = !baselineReady || restarted || deltaBytes < 0L
+
+internal fun downloadSpeedSample(deltaBytes: Long, elapsedNanos: Long): Long {
     if (deltaBytes <= 0L || elapsedNanos <= 0L) return 0L
-    return (deltaBytes.toDouble() * 1_000_000_000.0 / elapsedNanos.toDouble())
+    return sanitizeDisplaySpeed((deltaBytes.toDouble() * 1_000_000_000.0 / elapsedNanos.toDouble())
         .roundToLong()
-        .coerceAtLeast(0L)
+        .coerceAtLeast(0L))
 }
+
+private fun sanitizeDisplaySpeed(speedBytesPerSecond: Long): Long =
+    speedBytesPerSecond.takeIf { it in 1L..MAX_DISPLAY_SPEED_BYTES_PER_SECOND } ?: 0L
 
 private const val DOWNLOAD_UI_REFRESH_MS = 500L
 private const val DOWNLOAD_SPEED_SAMPLE_COUNT = 4
 private const val DOWNLOAD_SPEED_STALE_NANOS = 2_500_000_000L
 private const val DOWNLOAD_SPEED_FRESHNESS_MS = 1_500L
+private const val MAX_DISPLAY_SPEED_BYTES_PER_SECOND = 100L * 1024L * 1024L
+private const val MAX_TOTAL_DISPLAY_SPEED_BYTES_PER_SECOND = 500L * 1024L * 1024L
+private const val OVERALL_SPEED_WINDOW_NANOS = 20_000_000_000L
 
 internal fun shouldPreferLiveSnapshot(taskUpdatedAt: Long, liveUpdatedAt: Long): Boolean =
     liveUpdatedAt >= taskUpdatedAt
@@ -568,9 +839,11 @@ internal fun displayedSpeedFor(
     updatedAt: Long,
     now: Long,
 ): Long {
-    if (status != OfflineVideoCache.TaskStatus.DOWNLOADING || speedBytesPerSecond <= 0L) return 0L
+    if (status != OfflineVideoCache.TaskStatus.DOWNLOADING) return 0L
+    val safeSpeed = sanitizeDisplaySpeed(speedBytesPerSecond)
+    if (safeSpeed <= 0L) return 0L
     val age = now - updatedAt
-    return if (age in 0L..DOWNLOAD_SPEED_FRESHNESS_MS) speedBytesPerSecond else 0L
+    return if (age in 0L..DOWNLOAD_SPEED_FRESHNESS_MS) safeSpeed else 0L
 }
 
 internal fun downloadTabFor(status: OfflineVideoCache.TaskStatus): Int = when (status) {

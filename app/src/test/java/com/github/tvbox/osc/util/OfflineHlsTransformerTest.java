@@ -73,6 +73,16 @@ public class OfflineHlsTransformerTest {
                 OfflineHlsTransformer.parseDirectTsSegments(url, playlist).get(0).url);
         assertEquals("https://cdn.example/parts/segment-2.ts?token=abc",
                 OfflineHlsTransformer.parseDirectTsSegments(url, playlist).get(1).url);
+        assertEquals(6_000L,
+                OfflineHlsTransformer.parseDirectTsSegments(url, playlist).get(0).durationMs);
+    }
+
+    @Test
+    public void directTsParserKeepsFractionalSegmentDurations() {
+        String playlist = "#EXTM3U\n#EXTINF:5.25,\npart.ts\n#EXT-X-ENDLIST\n";
+        assertEquals(5_250L,
+                OfflineHlsTransformer.parseDirectTsSegments(
+                        "https://cdn.example/vod/index.m3u8", playlist).get(0).durationMs);
     }
 
     @Test

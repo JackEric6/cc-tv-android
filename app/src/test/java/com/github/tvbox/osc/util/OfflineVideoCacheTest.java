@@ -47,6 +47,14 @@ public class OfflineVideoCacheTest {
     }
 
     @Test
+    public void contentLengthProbeAcceptsOnlyPositiveNumericValues() {
+        assertEquals(307_445_734L, OfflineVideoCache.parsePositiveContentLength(" 307445734 "));
+        assertEquals(-1L, OfflineVideoCache.parsePositiveContentLength(null));
+        assertEquals(-1L, OfflineVideoCache.parsePositiveContentLength("0"));
+        assertEquals(-1L, OfflineVideoCache.parsePositiveContentLength("unknown"));
+    }
+
+    @Test
     public void shutdownWaitsUntilCancelledChildWorkerExits() throws Exception {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         CountDownLatch started = new CountDownLatch(1);
@@ -132,6 +140,39 @@ public class OfflineVideoCacheTest {
         assertFalse(OfflineMediaTransformer.isConvertibleMediaUrl("https://site.example/player?id=1"));
         assertFalse(OfflineVideoCache.isCacheableVodUrl("https://site.example/player?id=1"));
         assertFalse(OfflineVideoCache.isExplicitMp4DirectUrl("https://cdn.example/vod/index.m3u8?token=1"));
+    }
+
+    @Test
+    public void mediaTypeQueryParametersRouteToTheMatchingDownloader() {
+        assertEquals(".mp4", OfflineVideoCache.explicitMediaExtension(
+                "https://cdn.example/file?type=video%2Fmp4&token=1"));
+        assertEquals(".mkv", OfflineVideoCache.explicitMediaExtension(
+                "https://cdn.example/file?format=mkv"));
+        assertTrue(OfflineVideoCache.isCacheableVodUrl(
+                "https://cdn.example/file?type=application%2Fx-mpegURL"));
+        assertTrue(OfflineVideoCache.shouldUseHlsPrefetch(
+                "https://cdn.example/file?format=m3u8"));
+        assertTrue(OfflineVideoCache.isCacheableVodUrl(
+                "https://cdn.example/file?type=application%2Fdash%2Bxml"));
+    }
+
+    @Test
+    public void transientHttpStatusesAreRetriedButPermanentFailuresAreNot() {
+        assertTrue(OfflineVideoCache.isRetryableHttpStatus(408));
+        assertTrue(OfflineVideoCache.isRetryableHttpStatus(429));
+        assertTrue(OfflineVideoCache.isRetryableHttpStatus(503));
+        assertFalse(OfflineVideoCache.isRetryableHttpStatus(401));
+        assertFalse(OfflineVideoCache.isRetryableHttpStatus(404));
+    }
+
+    @Test
+    public void durationBasedEstimateScalesObservedBytesToEpisodeDuration() {
+        assertEquals(1_800_000L,
+                OfflineVideoCache.estimateTotalBytesFromDuration(300_000L, 600_000L, 3_600_000L));
+        assertEquals(-1L,
+                OfflineVideoCache.estimateTotalBytesFromDuration(300_000L, 0L, 3_600_000L));
+        assertEquals(-1L,
+                OfflineVideoCache.estimateTotalBytesFromDuration(300_000L, 600_000L, 300_000L));
     }
 
     @Test

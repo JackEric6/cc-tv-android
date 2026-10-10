@@ -86,10 +86,18 @@ final class OfflineHlsTransformer {
     }
 
     static boolean isHlsVodCandidate(String url) {
-        if (TextUtils.isEmpty(url)) return false;
+        if (url == null || url.isEmpty()) return false;
         try {
             HttpUrl parsed = HttpUrl.get(url.trim());
-            return parsed.encodedPath().toLowerCase(Locale.ROOT).endsWith(".m3u8");
+            if (parsed.encodedPath().toLowerCase(Locale.ROOT).endsWith(".m3u8")) return true;
+            for (String parameter : new String[]{"type", "format", "mime", "content-type"}) {
+                String value = parsed.queryParameter(parameter);
+                if (value == null || value.isEmpty()) continue;
+                String normalized = value.trim().toLowerCase(Locale.ROOT);
+                if (normalized.equals("m3u8") || normalized.equals("mpegurl")
+                        || normalized.contains("mpegurl")) return true;
+            }
+            return false;
         } catch (Throwable ignored) {
             return false;
         }
@@ -227,6 +235,9 @@ final class OfflineHlsTransformer {
             final OfflineTransformerProgress.Counter progressCounter =
                     new OfflineTransformerProgress.Counter();
             DefaultHttpDataSource.Factory httpFactory = new DefaultHttpDataSource.Factory()
+                    .setConnectTimeoutMs(20_000)
+                    .setReadTimeoutMs(45_000)
+                    .setAllowCrossProtocolRedirects(true)
                     .setDefaultRequestProperties(headers);
             DataSource.Factory dataSourceFactory = OfflineTransformerProgress.countingFactory(
                     new DefaultDataSource.Factory(context, httpFactory), context, key,
@@ -352,11 +363,17 @@ final class OfflineHlsTransformer {
         String[] lines = playlist.split("\\r?\\n");
         List<MediaSegment> segments = new ArrayList<>();
         boolean expectUri = false;
+        long pendingDurationMs = 0L;
         for (String raw : lines) {
             String line = raw == null ? "" : raw.trim();
             if (line.isEmpty()) continue;
             if (line.startsWith("#EXTINF:")) {
                 expectUri = true;
+                int colon = line.indexOf(':');
+                int comma = line.indexOf(',', colon + 1);
+                String duration = comma < 0
+                        ? line.substring(colon + 1) : line.substring(colon + 1, comma);
+                pendingDurationMs = parseDurationMs(duration);
                 continue;
             }
             if (line.startsWith("#")) continue;
@@ -366,10 +383,51 @@ final class OfflineHlsTransformer {
             String path = resolved.toLowerCase(Locale.ROOT);
             if (path.contains(".m4s") || path.contains(".mp4") || path.contains(".aac")
                     || path.contains(".webvtt")) return null;
-            segments.add(new MediaSegment(segments.size(), resolved));
+            segments.add(new MediaSegment(segments.size(), resolved, pendingDurationMs));
             expectUri = false;
+            pendingDurationMs = 0L;
         }
         return segments.isEmpty() ? null : segments;
+    }
+
+    private static long parseDurationMs(String value) {
+        try {
+            double seconds = Double.parseDouble(value.trim());
+            if (!Double.isFinite(seconds) || seconds <= 0.0 || seconds > 86_400.0) return 0L;
+            return Math.round(seconds * 1_000.0);
+        } catch (Throwable ignored) {
+            return 0L;
+        }
+    }
+
+    private static void reportSegmentProgress(Context context, String key, int completedSegments,
+                                              List<MediaSegment> segments, List<File> segmentFiles,
+                                              long downloadedBytes,
+                                              OfflineVideoCache.DownloadHandle handle) {
+        long totalDurationMs = 0L;
+        long completedDurationMs = 0L;
+        long completedBytes = 0L;
+        for (int i = 0; i < segments.size(); i++) {
+            MediaSegment segment = segments.get(i);
+            if (segment.durationMs <= 0L) {
+                totalDurationMs = 0L;
+                break;
+            }
+            totalDurationMs += segment.durationMs;
+            File file = segmentFiles.get(i);
+            if (isReusableSegment(file)) {
+                completedDurationMs += segment.durationMs;
+                completedBytes += file.length();
+            }
+        }
+        if (totalDurationMs > 0L && completedDurationMs > 0L && completedBytes > 0L) {
+            OfflineVideoCache.markSegmentProgressByDuration(context, key, completedSegments,
+                    segments.size(), downloadedBytes, completedDurationMs, totalDurationMs,
+                    completedBytes, handle);
+        } else {
+            OfflineVideoCache.markSegmentProgress(context, key, completedSegments,
+                    segments.size(), downloadedBytes, handle);
+        }
     }
 
     static boolean isDirectTsPlaylist(String playlistUrl, String playlist) {
@@ -456,8 +514,10 @@ final class OfflineHlsTransformer {
             // 一个完成后才补下一个，避免一次性创建整部剧集的连接。
             if (reusableSegments > 0) {
                 completedSegments.addAndGet(reusableSegments);
-                OfflineVideoCache.markSegmentProgress(context, key, completedSegments.get(),
-                        segments.size(), downloaded.get(), handle);
+                OfflineVideoCache.markProgress(context, key, downloaded.get(), total.get(),
+                        allSegmentLengthsKnown(segmentExpected), handle);
+                reportSegmentProgress(context, key, completedSegments.get(), segments,
+                        segmentFiles, downloaded.get(), handle);
             } else if (downloaded.get() > 0L) {
                 OfflineVideoCache.markProgress(context, key, downloaded.get(), -1L,
                         false, handle);
@@ -473,9 +533,11 @@ final class OfflineHlsTransformer {
                             handle, downloaded, total, segmentDownloaded, segmentExpected, calls,
                             failureReasons);
                     if (result != null && result.isFile() && result.length() > 0) {
+                        OfflineVideoCache.markProgress(context, key, downloaded.get(), total.get(),
+                                allSegmentLengthsKnown(segmentExpected), handle);
                         int completed = completedSegments.incrementAndGet();
-                        OfflineVideoCache.markSegmentProgress(context, key, completed,
-                                segments.size(), downloaded.get(), handle);
+                        reportSegmentProgress(context, key, completed, segments,
+                                segmentFiles, downloaded.get(), handle);
                     }
                     return result;
                 }));
@@ -509,9 +571,11 @@ final class OfflineHlsTransformer {
                                 handle, downloaded, total, segmentDownloaded, segmentExpected, calls,
                                 failureReasons);
                         if (nextResult != null && nextResult.isFile() && nextResult.length() > 0) {
+                            OfflineVideoCache.markProgress(context, key, downloaded.get(), total.get(),
+                                    allSegmentLengthsKnown(segmentExpected), handle);
                             int completed = completedSegments.incrementAndGet();
-                            OfflineVideoCache.markSegmentProgress(context, key, completed,
-                                    segments.size(), downloaded.get(), handle);
+                            reportSegmentProgress(context, key, completed, segments,
+                                    segmentFiles, downloaded.get(), handle);
                         }
                         return nextResult;
                     }));
@@ -620,6 +684,7 @@ final class OfflineHlsTransformer {
                             }
                             if (!temporary.renameTo(output)) throw new IOException("保存分片失败");
                             segmentDownloaded.set(segment.index, rangeTotal);
+                            recordSegmentLength(segment.index, rangeTotal, total, segmentExpected);
                             return output;
                         }
                         if (temporary.exists()) temporary.delete();
@@ -698,6 +763,10 @@ final class OfflineHlsTransformer {
                     if (localBytes <= 0 || !temporary.isFile() || temporary.length() <= 0) {
                         throw new IOException("空分片");
                     }
+                    long expected = segmentExpected.get(segment.index);
+                    if (expected > 0L && expected != localBytes) {
+                        throw new IOException("分片长度与服务器声明不一致");
+                    }
                     if (handle.isCancelled()) return null;
                     if (output.exists() && !output.delete()) {
                         throw new IOException("无法替换分片文件");
@@ -705,6 +774,7 @@ final class OfflineHlsTransformer {
                     if (!temporary.renameTo(output)) {
                         throw new IOException("保存分片失败");
                     }
+                    recordSegmentLength(segment.index, localBytes, total, segmentExpected);
                     return output;
                 }
             } catch (Throwable error) {
@@ -753,6 +823,20 @@ final class OfflineHlsTransformer {
             if (lengths.get(i) <= 0) return false;
         }
         return true;
+    }
+
+    private static void recordSegmentLength(int index, long length, AtomicLong total,
+                                            AtomicLongArray expectedLengths) {
+        if (length <= 0L || total == null || expectedLengths == null
+                || index < 0 || index >= expectedLengths.length()) return;
+        while (true) {
+            long previous = expectedLengths.get(index);
+            if (previous == length) return;
+            if (expectedLengths.compareAndSet(index, previous, length)) {
+                total.addAndGet(length - Math.max(0L, previous));
+                return;
+            }
+        }
     }
 
     /** 只有原子提交后的最终分片才可复用；带 .part 的文件一律视为未完成。 */
@@ -804,10 +888,12 @@ final class OfflineHlsTransformer {
     static final class MediaSegment {
         final int index;
         final String url;
+        final long durationMs;
 
-        MediaSegment(int index, String url) {
+        MediaSegment(int index, String url, long durationMs) {
             this.index = index;
             this.url = url;
+            this.durationMs = durationMs;
         }
     }
 
