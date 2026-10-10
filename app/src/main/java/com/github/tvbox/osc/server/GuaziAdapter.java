@@ -29,7 +29,7 @@ final class GuaziAdapter implements CmsAdapter {
     private static final String DEFAULT_HOME_PID = "3";
     private static final int MAX_HOME_SORTS = 14;
     private static final HomeSectionSpec[] FIXED_HOME_SECTIONS = {
-            new HomeSectionSpec("74151", "9月重磅新剧", "4"),
+            new HomeSectionSpec("74151", "10月重磅新剧", "4"),
             new HomeSectionSpec("46296", "最新热播电影", "3"),
             new HomeSectionSpec("19260", "TC抢先看", "3"),
             new HomeSectionSpec("17613", "豆瓣电影TOP250", "3"),

@@ -26,10 +26,10 @@ public class GuaziAdapterTest {
     }
 
     @Test
-    public void homepagePutsSeptemberHotDramaAndLatestHotMoviesFirst() {
+    public void homepagePutsOctoberHotDramaAndLatestHotMoviesFirst() {
         List<String> ordered = GuaziAdapter.orderHomeTitlesForTest(Arrays.asList(
-                "最新热播电影", "普通栏目", "9月重磅新剧", "热播综艺"));
-        assertEquals(Arrays.asList("9月重磅新剧", "最新热播电影", "普通栏目",
+                "最新热播电影", "普通栏目", "10月重磅新剧", "热播综艺"));
+        assertEquals(Arrays.asList("10月重磅新剧", "最新热播电影", "普通栏目",
                 "热播综艺"), ordered);
     }
 
@@ -48,7 +48,7 @@ public class GuaziAdapterTest {
                 "24066", "24057", "24067", "38579", "16560", "8", "6663"),
                 GuaziAdapter.fixedHomeIdsForTest());
         assertEquals(Arrays.asList(
-                "9月重磅新剧", "最新热播电影", "TC抢先看", "豆瓣电影TOP250", "Netflix新片推荐",
+                "10月重磅新剧", "最新热播电影", "TC抢先看", "豆瓣电影TOP250", "Netflix新片推荐",
                 "入站必追?累计2亿追番", "爱奇艺剧场", "优酷剧场", "腾讯剧场", "芒果剧场",
                 "大厂VIP短剧专区", "历届奥斯卡最佳影片", "冷门悬疑佳片Top20", "近期热门综艺"),
                 GuaziAdapter.fixedHomeTitlesForTest());
