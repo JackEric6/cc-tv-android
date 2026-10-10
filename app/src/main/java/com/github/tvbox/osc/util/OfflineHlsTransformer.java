@@ -309,7 +309,7 @@ final class OfflineHlsTransformer {
                 releaseSlot.run();
             });
             progressPoller[0] = new OfflineTransformerProgress.Poller(
-                    transformerHandler, transformer, context, key, handle);
+                    transformerHandler, transformer, context, key, outputPart, handle);
             MediaItem item = new MediaItem.Builder()
                     .setUri(Uri.parse(playlistUrl))
                     .setMimeType(MimeTypes.APPLICATION_M3U8)

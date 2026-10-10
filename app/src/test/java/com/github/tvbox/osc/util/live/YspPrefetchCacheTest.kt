@@ -23,4 +23,45 @@ class YspPrefetchCacheTest {
 
         assertNull(cache.take("ysp://cctv1"))
     }
+
+    @Test
+    fun prefetchedCandidatesKeepPrimaryAndBackupUrlsTogether() {
+        val cache = YspPrefetchCache()
+        val candidates = listOf(
+            "https://live.example/main.m3u8",
+            "https://backup.example/live.m3u8",
+        )
+        cache.putCandidates("ysp://cctv1", candidates)
+
+        assertEquals(candidates, cache.takeCandidates("ysp://cctv1"))
+        assertNull(cache.takeCandidates("ysp://cctv1"))
+    }
+
+    @Test
+    fun fallbackQueueReturnsEachAlternativeOnceInOrder() {
+        val queue = YspFallbackQueue()
+        queue.set("ysp://cctv1", listOf("https://backup-a.example/live.m3u8", "https://backup-b.example/live.m3u8"))
+
+        assertEquals("https://backup-a.example/live.m3u8", queue.next("ysp://cctv1"))
+        assertEquals("https://backup-b.example/live.m3u8", queue.next("ysp://cctv1"))
+        assertNull(queue.next("ysp://cctv1"))
+    }
+
+    @Test
+    fun resolverKeepsOnlyDistinctOfficialCdnCandidates() {
+        val body = """
+            {"iretcode":0,
+             "playurl":"https://live.cctv.cn/main.m3u8",
+             "backurl_list":[
+               {"url":"https://backup.cctv.com/backup.m3u8"},
+               {"url":"https://live.cctv.cn/main.m3u8"},
+               {"url":"https://untrusted.example/ad.m3u8"}
+             ]}
+        """.trimIndent()
+
+        assertEquals(
+            listOf("https://live.cctv.cn/main.m3u8", "https://backup.cctv.com/backup.m3u8"),
+            YspLiveResolver.parsePlayUrls(body),
+        )
+    }
 }

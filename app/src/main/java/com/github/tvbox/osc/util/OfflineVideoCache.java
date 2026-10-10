@@ -81,6 +81,7 @@ public final class OfflineVideoCache {
     private static final long DIRECT_RETRY_BASE_MS = 500L;
     private static final long MAX_FILE_BYTES = 4L * 1024L * 1024L * 1024L;
     private static final long MIN_DURATION_ESTIMATE_SAMPLE_MS = 15_000L;
+    private static final int MIN_TRANSFORM_ESTIMATE_PROGRESS = 3;
     /** Shared cap for independent offline downloads across direct, HLS, and transformed media. */
     static final int MAX_ACTIVE_DOWNLOADS = 5;
     private static final Semaphore DOWNLOAD_SLOTS =
@@ -1180,6 +1181,7 @@ public final class OfflineVideoCache {
                     old.errorMessage = "";
                     old.downloadedBytes = 0;
                     old.totalBytes = -1;
+                    old.estimatedTotalBytes = -1;
                     old.progressPercent = -1;
                 }
             }
@@ -1453,7 +1455,9 @@ public final class OfflineVideoCache {
             task.progressPercent = Math.max(task.progressPercent, safePercent);
             if (task.totalBytes <= 0L && candidateTotal > 0L
                     && completedDurationMs >= MIN_DURATION_ESTIMATE_SAMPLE_MS) {
-                task.estimatedTotalBytes = candidateTotal;
+                double confidence = Math.min(0.7, 0.2 + completedDurationMs / 600_000.0 * 0.5);
+                task.estimatedTotalBytes = smoothEstimatedTotalBytes(
+                        task.estimatedTotalBytes, candidateTotal, downloadedBytes, confidence);
             }
             task.updatedAt = Math.max(System.currentTimeMillis(), task.updatedAt + 1L);
             persistTasksLocked();
@@ -1470,12 +1474,38 @@ public final class OfflineVideoCache {
         return Math.max(completedBytes, Math.round(estimate));
     }
 
-    /** Media3 Transformer 只提供百分比，不提供文件总字节数；保留真实字节速度并单独更新百分比。 */
+    static long estimateTotalBytesFromProgress(long outputBytes, int progressPercent) {
+        if (outputBytes <= 0L || progressPercent < MIN_TRANSFORM_ESTIMATE_PROGRESS
+                || progressPercent >= 100) return -1L;
+        double estimate = outputBytes * 100.0 / progressPercent;
+        if (!Double.isFinite(estimate) || estimate <= 0.0 || estimate > MAX_FILE_BYTES) return -1L;
+        return Math.max(outputBytes, Math.round(estimate));
+    }
+
+    static long smoothEstimatedTotalBytes(long previousEstimate, long candidateEstimate,
+                                          long minimumBytes, double confidence) {
+        if (candidateEstimate <= 0L) {
+            return previousEstimate > 0L ? Math.max(previousEstimate, minimumBytes) : -1L;
+        }
+        long candidate = Math.max(candidateEstimate, minimumBytes);
+        if (previousEstimate <= 0L) return candidate;
+        double weight = Math.max(0.1, Math.min(0.75, confidence));
+        long smoothed = Math.round(previousEstimate * (1.0 - weight) + candidate * weight);
+        return Math.max(minimumBytes, smoothed);
+    }
+
+    /** Media3 Transformer 只提供百分比；从输出样本估算总量，同时保留网络字节速度统计。 */
     static void markTransformerProgress(Context context, String id, int progressPercent) {
         markTransformerProgress(context, id, progressPercent, null);
     }
 
     static void markTransformerProgress(Context context, String id, int progressPercent,
+                                        @Nullable DownloadHandle handle) {
+        markTransformerProgress(context, id, progressPercent, null, handle);
+    }
+
+    static void markTransformerProgress(Context context, String id, int progressPercent,
+                                        @Nullable File outputPart,
                                         @Nullable DownloadHandle handle) {
         if (context == null || TextUtils.isEmpty(id)) return;
         if (!isCurrentHandle(id, handle)) return;
@@ -1496,6 +1526,21 @@ public final class OfflineVideoCache {
             if (safePercent > task.progressPercent) {
                 task.progressPercent = safePercent;
                 changed = true;
+            }
+            long outputBytes = outputPart != null && outputPart.isFile() ? outputPart.length() : 0L;
+            long candidateEstimate = estimateTotalBytesFromProgress(outputBytes, safePercent);
+            if (task.totalBytes <= 0L && candidateEstimate > 0L) {
+                long smoothedEstimate = smoothEstimatedTotalBytes(
+                        task.estimatedTotalBytes, candidateEstimate, outputBytes,
+                        safePercent / 100.0);
+                long previousEstimate = task.estimatedTotalBytes;
+                long estimateDelta = Math.abs(smoothedEstimate - previousEstimate);
+                long estimateThreshold = Math.max(256L * 1024L,
+                        previousEstimate > 0L ? previousEstimate / 100L : 0L);
+                if (previousEstimate <= 0L || estimateDelta >= estimateThreshold) {
+                    task.estimatedTotalBytes = smoothedEstimate;
+                    changed = true;
+                }
             }
             if (changed) {
                 task.errorMessage = "";

@@ -9,6 +9,7 @@ import androidx.media3.datasource.DataSpec;
 import androidx.media3.transformer.ProgressHolder;
 import androidx.media3.transformer.Transformer;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -37,16 +38,19 @@ final class OfflineTransformerProgress {
         private final Transformer transformer;
         private final Context context;
         private final String taskId;
+        private final File outputPart;
         private final OfflineVideoCache.DownloadHandle handle;
         private final ProgressHolder holder = new ProgressHolder();
         private final AtomicBoolean stopped = new AtomicBoolean();
 
         Poller(Handler handler, Transformer transformer, Context context, String taskId,
+               File outputPart,
                OfflineVideoCache.DownloadHandle handle) {
             this.handler = handler;
             this.transformer = transformer;
             this.context = context;
             this.taskId = taskId;
+            this.outputPart = outputPart;
             this.handle = handle;
         }
 
@@ -64,7 +68,8 @@ final class OfflineTransformerProgress {
             try {
                 int state = transformer.getProgress(holder);
                 if (state == Transformer.PROGRESS_STATE_AVAILABLE) {
-                    OfflineVideoCache.markTransformerProgress(context, taskId, holder.progress, handle);
+                    OfflineVideoCache.markTransformerProgress(
+                            context, taskId, holder.progress, outputPart, handle);
                 }
             } catch (Throwable ignored) {
                 // Transformer may be torn down while a final poll is queued.

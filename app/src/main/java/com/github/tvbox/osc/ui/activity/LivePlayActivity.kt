@@ -135,6 +135,7 @@ class LivePlayActivity : BaseActivity() {
     private var liveResolveJob: Job? = null
     private var livePrefetchJob: Job? = null
     private var livePlaybackRequestId = 0
+    private var currentYspSource: String? = null
     private val liveChannelGroupList = ArrayList<LiveChannelGroup>()
     internal var currentChannelGroupIndex: Int by VmVar(LivePlayViewModel::currentChannelGroupIndex)
     internal var currentLiveChannelIndex: Int by VmVar(LivePlayViewModel::currentLiveChannelIndex)
@@ -255,6 +256,7 @@ class LivePlayActivity : BaseActivity() {
     override fun onDestroy() {
         livePlaybackRequestId++
         liveResolveJob?.cancel()
+        livePrefetchJob?.cancel()
         liveResolveScope.cancel()
         super.onDestroy()
         hideSwitchChannelSnapshot()
@@ -349,6 +351,7 @@ class LivePlayActivity : BaseActivity() {
             VideoView.STATE_IDLE, VideoView.STATE_PAUSED -> {}
             VideoView.STATE_PREPARED, VideoView.STATE_BUFFERED, VideoView.STATE_PLAYING -> {
                 hideSwitchChannelSnapshot()
+                currentYspSource?.let(YspLiveResolver::clearFallbacks)
                 if (resolutionInfoPending) {
                     resolutionInfoRetryCount = 0
                     mHandler.removeCallbacks(mUpdateResolutionInfoRun)
@@ -472,6 +475,8 @@ class LivePlayActivity : BaseActivity() {
         liveResolveJob?.cancel()
         val requestId = ++livePlaybackRequestId
         val source = item.url
+        currentYspSource?.let(YspLiveResolver::clearFallbacks)
+        currentYspSource = null
         if (!source.startsWith("ysp://")) {
             startResolvedChannel(videoView, source, reusePlayer)
             return
@@ -493,6 +498,7 @@ class LivePlayActivity : BaseActivity() {
                 Toast.makeText(this@LivePlayActivity, "频道地址获取失败，请稍后重试", Toast.LENGTH_SHORT).show()
                 return@launch
             }
+            currentYspSource = source
             startResolvedChannel(videoView, liveUrl, reusePlayer)
             prefetchNextYspChannel(source)
         }
@@ -553,6 +559,9 @@ class LivePlayActivity : BaseActivity() {
     }
 
     private val mConnectTimeoutChangeSourceRun = Runnable {
+        if (tryNextYspFallback()) {
+            return@Runnable
+        }
         if (switchLivePlayerAndReplay()) {
             return@Runnable
         }
@@ -564,6 +573,19 @@ class LivePlayActivity : BaseActivity() {
         } else {
             playNextSource()
         }
+    }
+
+    private fun tryNextYspFallback(): Boolean {
+        val source = currentYspSource ?: return false
+        val videoView = mVideoView ?: return false
+        val fallbackUrl = YspLiveResolver.nextFallback(source) ?: return false
+        LOG.i("$TAG 央视频道切换备用 CDN: $source")
+        startResolvedChannel(
+            videoView,
+            fallbackUrl,
+            reusePlayer = videoView.currentPlayState != VideoView.STATE_IDLE,
+        )
+        return true
     }
 
     private fun switchLivePlayerAndReplay(): Boolean {
@@ -821,6 +843,8 @@ class LivePlayActivity : BaseActivity() {
         pendingLiveRefreshChannelName = null
         pendingLiveRefreshSourceIndex = -1
         currentLiveChannelItem = null
+        currentYspSource?.let(YspLiveResolver::clearFallbacks)
+        currentYspSource = null
         currentLiveChannelIndex = -1
         currentLiveLookBackIndex = -1
         currentLiveChangeSourceTimes = 0

@@ -38,6 +38,7 @@ internal object YspLiveResolver {
     private val ckeyXor = hex("842eed08f066e6ea48b4caa991ed6ff3")
     private val guardXor = hex("b3c953a06913ad4d")
     private val prefetchedUrls = YspPrefetchCache()
+    private val fallbackUrls = YspFallbackQueue()
     private val http = OkHttpClient.Builder()
         .connectTimeout(3, TimeUnit.SECONDS)
         .readTimeout(4, TimeUnit.SECONDS)
@@ -45,16 +46,21 @@ internal object YspLiveResolver {
         .build()
 
     suspend fun resolve(source: String): String? {
-        prefetchedUrls.take(source)?.let { return it }
-        return resolveFresh(source)
+        val candidates = prefetchedUrls.takeCandidates(source) ?: resolveFresh(source) ?: return null
+        fallbackUrls.set(source, candidates.drop(1))
+        return candidates.firstOrNull()
     }
 
     suspend fun prefetch(source: String) {
-        val url = resolveFresh(source) ?: return
-        prefetchedUrls.put(source, url)
+        val urls = resolveFresh(source) ?: return
+        prefetchedUrls.putCandidates(source, urls)
     }
 
-    private suspend fun resolveFresh(source: String): String? {
+    fun nextFallback(source: String): String? = fallbackUrls.next(source)
+
+    fun clearFallbacks(source: String) = fallbackUrls.clear(source)
+
+    private suspend fun resolveFresh(source: String): List<String>? {
         val uri = runCatching { URI(source) }.getOrNull() ?: return null
         if (uri.scheme != "ysp") return null
         val channelId = uri.host ?: return null
@@ -62,8 +68,8 @@ internal object YspLiveResolver {
         repeat(2) {
             val request = runCatching { buildRequest(channel) }.getOrNull() ?: return null
             val body = executeRequest(request) ?: return@repeat
-            val url = parsePlayUrl(body)
-            if (url != null) return url
+            val urls = parsePlayUrls(body)
+            if (urls.isNotEmpty()) return urls
         }
         return null
     }
@@ -140,17 +146,17 @@ internal object YspLiveResolver {
         })
     }
 
-    private fun parsePlayUrl(body: String): String? = runCatching {
+    internal fun parsePlayUrls(body: String): List<String> = runCatching {
         val json = gson.fromJson(body, JsonObject::class.java)
-        if (json.get("iretcode")?.asInt != 0) return null
+        if (json.get("iretcode")?.asInt != 0) return emptyList()
         val urls = ArrayList<String>()
         json.get("playurl")?.takeIf { it.isJsonPrimitive }?.asString?.let(urls::add)
         json.getAsJsonArray("backurl_list")?.forEach { item ->
             val candidate = if (item.isJsonPrimitive) item.asString else item.asJsonObject.get("url")?.asString
             if (!candidate.isNullOrBlank()) urls.add(candidate)
         }
-        urls.firstOrNull(::isOfficialMediaUrl)
-    }.getOrNull()
+        urls.filter(::isOfficialMediaUrl).distinct()
+    }.getOrDefault(emptyList())
 
     private fun isOfficialMediaUrl(value: String): Boolean = runCatching {
         val uri = URI(value)
@@ -331,17 +337,48 @@ internal class YspPrefetchCache(
     private val ttlMillis: Long = 15_000,
     private val nowMillis: () -> Long = System::currentTimeMillis,
 ) {
-    private data class Entry(val url: String, val expiresAt: Long)
+    private data class Entry(val urls: List<String>, val expiresAt: Long)
     private val entries = ConcurrentHashMap<String, Entry>()
 
     fun put(source: String, url: String) {
-        if (source.isNotBlank() && url.isNotBlank()) {
-            entries[source] = Entry(url, nowMillis() + ttlMillis)
+        putCandidates(source, listOf(url))
+    }
+
+    fun putCandidates(source: String, urls: List<String>) {
+        val candidates = urls.filter(String::isNotBlank).distinct()
+        if (source.isNotBlank() && candidates.isNotEmpty()) {
+            entries[source] = Entry(candidates, nowMillis() + ttlMillis)
         }
     }
 
-    fun take(source: String): String? {
+    fun take(source: String): String? = takeCandidates(source)?.firstOrNull()
+
+    fun takeCandidates(source: String): List<String>? {
         val entry = entries.remove(source) ?: return null
-        return entry.url.takeIf { nowMillis() <= entry.expiresAt }
+        return entry.urls.takeIf { nowMillis() <= entry.expiresAt }
+    }
+}
+
+internal class YspFallbackQueue {
+    private val entries = ConcurrentHashMap<String, java.util.concurrent.ConcurrentLinkedQueue<String>>()
+
+    fun set(source: String, urls: List<String>) {
+        val candidates = urls.filter(String::isNotBlank).distinct()
+        if (source.isBlank() || candidates.isEmpty()) {
+            clear(source)
+        } else {
+            entries[source] = java.util.concurrent.ConcurrentLinkedQueue(candidates)
+        }
+    }
+
+    fun next(source: String): String? {
+        val queue = entries[source] ?: return null
+        val next = queue.poll()
+        if (queue.isEmpty()) entries.remove(source, queue)
+        return next
+    }
+
+    fun clear(source: String) {
+        if (source.isNotBlank()) entries.remove(source)
     }
 }

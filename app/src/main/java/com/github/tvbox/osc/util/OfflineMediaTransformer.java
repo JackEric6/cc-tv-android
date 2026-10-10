@@ -228,7 +228,7 @@ final class OfflineMediaTransformer {
                 releaseSlot.run();
             });
             progressPoller[0] = new OfflineTransformerProgress.Poller(
-                    transformerHandler, transformer, context, key, handle);
+                    transformerHandler, transformer, context, key, outputPart, handle);
 
             MediaItem.Builder item = new MediaItem.Builder().setUri(Uri.parse(remoteUrl));
             String mimeType = mimeTypeFor(remoteUrl);

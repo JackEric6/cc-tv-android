@@ -180,6 +180,31 @@ public class OfflineVideoCacheTest {
     }
 
     @Test
+    public void transformerEstimateScalesOutputBytesByCompletedProgress() {
+        assertEquals(100_000_000L,
+                OfflineVideoCache.estimateTotalBytesFromProgress(3_000_000L, 3));
+        assertEquals(-1L,
+                OfflineVideoCache.estimateTotalBytesFromProgress(3_000_000L, 2));
+        assertEquals(-1L,
+                OfflineVideoCache.estimateTotalBytesFromProgress(3_000_000L, 100));
+        assertEquals(-1L,
+                OfflineVideoCache.estimateTotalBytesFromProgress(150_000_000L, 3));
+    }
+
+    @Test
+    public void estimatedTotalIsSmoothedAndNeverBelowObservedOutput() {
+        assertEquals(125_000_000L,
+                OfflineVideoCache.smoothEstimatedTotalBytes(100_000_000L,
+                        200_000_000L, 0L, 0.25));
+        assertEquals(150_000_000L,
+                OfflineVideoCache.smoothEstimatedTotalBytes(100_000_000L,
+                        200_000_000L, 150_000_000L, 0.25));
+        assertEquals(200_000_000L,
+                OfflineVideoCache.smoothEstimatedTotalBytes(-1L,
+                        200_000_000L, 0L, 0.25));
+    }
+
+    @Test
     public void jianpianP2pBridgeUsesRangeDownloaderInsteadOfHlsTransformer() {
         String bridge = "http://127.0.0.1:9979/jianpian/p2p.m3u8"
                 + "?work_id=4549&episode_key=e43&episode_index=42&line_key=p2p";
