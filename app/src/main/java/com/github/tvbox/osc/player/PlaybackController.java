@@ -175,10 +175,10 @@ public class PlaybackController {
             // 于本剧播放器里显式选过(ijkSet / exoSet,见 ComposeVideoController.onIjkClicked)才按剧记忆 ——
             // 否则播放记录里持久化的旧 "ijk"/"exo" 会一直压过设置页的新值,"设置里改成软解、这部剧却永远硬解"。
             if (playerCfg.optInt("ijkSet", 0) == 0) {
-                playerCfg.put("ijk", KV.get(HawkConfig.IJK_CODEC, "硬解码"));
+                playerCfg.put("ijk", KV.get(HawkConfig.IJK_CODEC, "软解码"));
             }
             if (playerCfg.optInt("exoSet", 0) == 0) {
-                playerCfg.put("exo", KV.get(HawkConfig.EXO_DECODE, "硬解码"));
+                playerCfg.put("exo", KV.get(HawkConfig.EXO_DECODE, "软解码"));
             }
             if (!playerCfg.has("sc")) {
                 playerCfg.put("sc", KV.get(HawkConfig.PLAY_SCALE, 0));
@@ -615,10 +615,10 @@ public class PlaybackController {
         boolean autoExo = st.autoSwitchedDecodeOld != null && "exo".equals(st.autoSwitchedDecodeKey);
         try {
             if (playerCfg.optInt("ijkSet", 0) == 0 && !autoIjk) {
-                playerCfg.put("ijk", KV.get(HawkConfig.IJK_CODEC, "硬解码"));
+                playerCfg.put("ijk", KV.get(HawkConfig.IJK_CODEC, "软解码"));
             }
             if (playerCfg.optInt("exoSet", 0) == 0 && !autoExo) {
-                playerCfg.put("exo", KV.get(HawkConfig.EXO_DECODE, "硬解码"));
+                playerCfg.put("exo", KV.get(HawkConfig.EXO_DECODE, "软解码"));
             }
         } catch (Throwable th) {
             // 与 initPlayerCfg 一致:刷新失败不阻断播放
@@ -1553,7 +1553,7 @@ public class PlaybackController {
         if (!url.startsWith("data:application")) {
             EventBus.getDefault().post(new RefreshEvent(RefreshEvent.TYPE_REFRESH, url));//更新播放地址
         }
-        if (!KV.get(HawkConfig.M3U8_PURIFY, true)) {
+        if (!KV.get(HawkConfig.M3U8_PURIFY, false)) {
             goPlayUrl(url, headers);
             return;
         }

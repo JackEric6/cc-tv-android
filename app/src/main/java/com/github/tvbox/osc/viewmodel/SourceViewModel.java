@@ -25,6 +25,7 @@ import com.github.tvbox.osc.event.RefreshEvent;
 import com.github.tvbox.osc.player.thirdparty.RemoteTVBox;
 import com.github.tvbox.osc.server.Cz4kBrowserSession;
 import com.github.tvbox.osc.server.NativeFanSource;
+import com.github.tvbox.osc.util.DyttPlaybackLineFilter;
 import com.github.tvbox.osc.util.DefaultConfig;
 import com.github.tvbox.osc.util.FileUtils;
 import com.github.tvbox.osc.util.HawkConfig;
@@ -1850,6 +1851,7 @@ public class SourceViewModel extends ViewModel {
         if (data.movie != null && data.movie.videoList != null) {
             for (Movie.Video video : data.movie.videoList) {
                 if (video.urlBean != null && video.urlBean.infoList != null) {
+                    video.urlBean.infoList = DyttPlaybackLineFilter.filter(sourceKey, video.urlBean.infoList);
                     for (Movie.Video.UrlBean.UrlInfo urlInfo : video.urlBean.infoList) {
                         String[] str = null;
                         if (urlInfo.urls.contains("#")) {

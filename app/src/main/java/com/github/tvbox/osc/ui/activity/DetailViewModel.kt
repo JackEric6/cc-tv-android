@@ -596,7 +596,8 @@ class DetailViewModel : ViewModel() {
             .filter { !usedSourceKeys.contains(it.sourceKey) && it.sourceKey != sourceKey }
             .map { video ->
                 val key = video.sourceKey.orEmpty()
-                SourceChip(key, ApiConfig.get().getSource(key)?.name ?: key)
+                val name = if (key == "dyttzy") "天堂" else ApiConfig.get().getSource(key)?.name ?: key
+                SourceChip(key, name)
             }
             .distinctBy { it.key }
     }

@@ -1042,7 +1042,7 @@ public class ApiConfig {
         if(ijkCodes==null){
             ijkCodes = new ArrayList<>();
             boolean foundOldSelect = false;
-            String ijkCodec = KV.get(HawkConfig.IJK_CODEC, "硬解码");
+            String ijkCodec = KV.get(HawkConfig.IJK_CODEC, "软解码");
             JsonArray ijkJsonArray = defaultJson.get("ijk").getAsJsonArray();
             for (JsonElement opt : ijkJsonArray) {
                 JsonObject obj = (JsonObject) opt;
@@ -1757,7 +1757,7 @@ public class ApiConfig {
     }
 
     public IJKCode getCurrentIJKCode() {
-        String codeName = KV.get(HawkConfig.IJK_CODEC, "硬解码");
+        String codeName = KV.get(HawkConfig.IJK_CODEC, "软解码");
         return getIJKCodec(codeName);
     }
 

@@ -263,7 +263,11 @@ private fun DetailContent(
     var descExpanded by rememberSaveable { mutableStateOf(false) }
 
     val currentSource = ApiConfig.get().getSource(vm.firstsourceKey)
-    val displaySourceName = currentSource?.name ?: vm.firstsourceKey
+    val displaySourceName = if (vm.firstsourceKey == "dyttzy") {
+        "天堂"
+    } else {
+        currentSource?.name ?: vm.firstsourceKey
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
