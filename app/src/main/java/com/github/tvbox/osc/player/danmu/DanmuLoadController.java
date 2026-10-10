@@ -206,37 +206,66 @@ public class DanmuLoadController {
         if (executor == null || executor.isShutdown()) {
             executor = Executors.newSingleThreadExecutor();
         }
-        executor.execute(() -> {
-            Parser parser = new Parser(danmu, () -> seq != loadSeq.get());
-            if (seq != loadSeq.get()) return;
-            int danmuCount = parser.getDanmuCount();
-            LOG.i("echo-danmu parsed count: " + danmuCount);
-            if (danmuView == null) return;
-            danmuView.post(() -> {
-                if (seq != loadSeq.get() || danmakuContext == null) return;
-                preparingSeq = -1;
+        try {
+            executor.execute(() -> {
+                final Parser parser;
+                final int danmuCount;
                 try {
-                    danmuView.release();
-                    if (videoView != null) videoView.setDanmuView(danmuView);
-                    if (danmuCount <= 0) {
-                        LOG.e("echo-danmu empty after parse");
+                    parser = new Parser(danmu, () -> seq != loadSeq.get());
+                    if (seq != loadSeq.get()) return;
+                    danmuCount = parser.getDanmuCount();
+                } catch (RuntimeException th) {
+                    LOG.e("echo-danmu parse error: " + th.getMessage());
+                    dispatchLoadFailed(seq);
+                    return;
+                }
+                LOG.i("echo-danmu parsed count: " + danmuCount);
+                if (danmuView == null) {
+                    notifyLoadFailed(seq);
+                    return;
+                }
+                boolean posted = danmuView.post(() -> {
+                    if (seq != loadSeq.get() || danmakuContext == null) return;
+                    preparingSeq = -1;
+                    try {
+                        danmuView.release();
+                        if (videoView != null) videoView.setDanmuView(danmuView);
+                        if (danmuCount <= 0) {
+                            LOG.e("echo-danmu empty after parse");
+                            danmuView.setVisibility(View.GONE);
+                            notifyLoadFailed(seq);
+                            return;
+                        }
+                        danmuView.prepare(parser, danmakuContext);
+                        clearLoadCallback(seq);
+                        danmuView.setVisibility(isDisplayEnabled() ? View.VISIBLE : View.GONE);
+                        startIfReady(seq);
+                        danmuView.postDelayed(() -> startIfReady(seq), 300);
+                        danmuView.postDelayed(() -> startIfReady(seq), 1000);
+                    } catch (Throwable th) {
+                        LOG.e("echo-danmu prepare error: " + th.getMessage());
                         danmuView.setVisibility(View.GONE);
                         notifyLoadFailed(seq);
-                        return;
                     }
-                    danmuView.prepare(parser, danmakuContext);
-                    clearLoadCallback(seq);
-                    danmuView.setVisibility(isDisplayEnabled() ? View.VISIBLE : View.GONE);
-                    startIfReady(seq);
-                    danmuView.postDelayed(() -> startIfReady(seq), 300);
-                    danmuView.postDelayed(() -> startIfReady(seq), 1000);
-                } catch (Throwable th) {
-                    LOG.e("echo-danmu prepare error: " + th.getMessage());
-                    danmuView.setVisibility(View.GONE);
-                    notifyLoadFailed(seq);
-                }
+                });
+                if (!posted) dispatchLoadFailed(seq);
             });
-        });
+        } catch (RuntimeException th) {
+            LOG.e("echo-danmu executor error: " + th.getMessage());
+            dispatchLoadFailed(seq);
+        }
+    }
+
+    private void dispatchLoadFailed(int seq) {
+        if (seq != loadSeq.get()) return;
+        if (danmuView == null || !danmuView.post(() -> {
+            if (seq != loadSeq.get()) return;
+            preparingSeq = -1;
+            if (danmuView != null) danmuView.setVisibility(View.GONE);
+            notifyLoadFailed(seq);
+        })) {
+            notifyLoadFailed(seq);
+        }
     }
 
     private void clearLoadCallback(int seq) {

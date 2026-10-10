@@ -1313,6 +1313,7 @@ public class PlaybackController {
         String title = vod().name;
         String episode = series == null ? "" : series.name;
         String key = progressKey();
+        LOG.i("echo-danmu auto search start, episode: " + episode);
         DanmakuApi.search(title, episode, new DanmakuApi.SearchCallback() {
             @Override
             public void onFound(String url) {
@@ -1341,20 +1342,20 @@ public class PlaybackController {
                 if (results != null) {
                     for (DanmuSearchResult result : results) {
                         if (result == null) continue;
-                        if (DanmuEpisodeMatcher.matchScore(title, episode, result.getName()) >= 0) {
+                        int candidateEpisode = DanmuEpisodeMatcher.episodeNumber(result.getName());
+                        if (targetEpisode > 0 && candidateEpisode == targetEpisode) {
+                            matches.add(result);
+                        } else if (targetEpisode <= 0 && !TextUtils.isEmpty(episode)
+                                && result.getName().contains(episode)) {
                             matches.add(result);
                         }
                     }
-                    matches.sort((left, right) -> Integer.compare(
-                            DanmuEpisodeMatcher.matchScore(title, episode, right.getName()),
-                            DanmuEpisodeMatcher.matchScore(title, episode, left.getName())));
                     if (matches.isEmpty() && results.size() == 1 && results.get(0) != null) {
-                        DanmuSearchResult only = results.get(0);
-                        int candidateEpisode = DanmuEpisodeMatcher.episodeNumber(only.getName());
-                        if (targetEpisode <= 0 || candidateEpisode <= 0
-                                || candidateEpisode == targetEpisode) matches.add(only);
+                        matches.add(results.get(0));
                     }
                 }
+                LOG.i("echo-danmu candidates: " + (results == null ? 0 : results.size())
+                        + ", eligible: " + matches.size());
                 if (matches.isEmpty()) {
                     checkDanmu("", null);
                     return;
@@ -1372,9 +1373,11 @@ public class PlaybackController {
     private void tryDanmuCandidate(List<DanmuSearchResult> candidates, int index, String key) {
         if (!isCurrentDanmuSearch(key)) return;
         if (index >= candidates.size()) {
+            LOG.i("echo-danmu candidates exhausted");
             checkDanmu("", null);
             return;
         }
+        LOG.i("echo-danmu trying candidate " + (index + 1) + "/" + candidates.size());
         DanmakuApi.loadSearchResult(candidates.get(index), new DanmakuApi.SearchResultCallback() {
             @Override
             public void onSuccess(String danmu) {
@@ -1388,6 +1391,7 @@ public class PlaybackController {
 
             @Override
             public void onError(String message) {
+                LOG.e("echo-danmu candidate load error: " + message);
                 tryDanmuCandidate(candidates, index + 1, key);
             }
         });
