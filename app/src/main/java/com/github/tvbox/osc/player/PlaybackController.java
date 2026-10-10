@@ -1305,7 +1305,7 @@ public class PlaybackController {
     /**
      * 搜索当前集的备用弹幕(与进度键绑定：切集后旧结果作废)。
      *
-     * <p>调用方只在源未给弹幕或源弹幕解析为空时进入；搜索到的结果再次解析失败时停止，避免坏接口无限重试。
+     * <p>调用方只在源未给弹幕或源弹幕解析失败时进入；候选逐个验证，失败后继续下一个，不循环重试。
      */
     private void searchDanmu() {
         if (!DanmakuApi.canSearch() || vod() == null) return;
@@ -1338,20 +1338,31 @@ public class PlaybackController {
             public void onSuccess(List<DanmuSearchResult> results) {
                 if (!isCurrentDanmuSearch(key)) return;
                 List<DanmuSearchResult> matches = new ArrayList<>();
-                int targetEpisode = DanmuEpisodeMatcher.episodeNumber(episode);
                 if (results != null) {
                     for (DanmuSearchResult result : results) {
                         if (result == null) continue;
-                        int candidateEpisode = DanmuEpisodeMatcher.episodeNumber(result.getName());
-                        if (targetEpisode > 0 && candidateEpisode == targetEpisode) {
-                            matches.add(result);
-                        } else if (targetEpisode <= 0 && !TextUtils.isEmpty(episode)
-                                && result.getName().contains(episode)) {
+                        String candidateTitle = result.getEpisodeName();
+                        if (DanmuEpisodeMatcher.matchScore(title, episode, candidateTitle) >= 0) {
                             matches.add(result);
                         }
                     }
-                    if (matches.isEmpty() && results.size() == 1 && results.get(0) != null) {
-                        matches.add(results.get(0));
+                    matches.sort((left, right) -> Integer.compare(
+                            DanmuEpisodeMatcher.matchScore(title, episode, right.getEpisodeName()),
+                            DanmuEpisodeMatcher.matchScore(title, episode, left.getEpisodeName())));
+                }
+                if (matches.size() > 1) {
+                    DanmuSearchResult best = matches.get(0);
+                    int bestScore = DanmuEpisodeMatcher.matchScore(title, episode, best.getEpisodeName());
+                    boolean bestHasSeriesTitle = DanmuEpisodeMatcher.matchesSeriesTitle(title, best.getEpisodeName());
+                    int equallyRanked = 0;
+                    for (DanmuSearchResult match : matches) {
+                        if (DanmuEpisodeMatcher.matchScore(title, episode, match.getEpisodeName()) == bestScore) {
+                            equallyRanked++;
+                        }
+                    }
+                    if (!bestHasSeriesTitle && equallyRanked > 1) {
+                        LOG.i("echo-danmu ambiguous episode candidates, skip auto load");
+                        matches.clear();
                     }
                 }
                 LOG.i("echo-danmu candidates: " + (results == null ? 0 : results.size())

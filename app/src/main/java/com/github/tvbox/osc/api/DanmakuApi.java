@@ -490,6 +490,7 @@ public class DanmakuApi {
         JSONArray episodes = episodeList == null ? null : episodeList.episodes;
         if (episodes == null || episodes.length() <= 0) return null;
         int targetNumber = extractNumber(episode);
+        int targetSeason = DanmuEpisodeMatcher.seasonNumber(episode);
         EpisodeMatch first = null;
         EpisodeMatch firstMandarin = null;
         for (int i = 0; i < episodes.length(); i++) {
@@ -500,8 +501,10 @@ public class DanmakuApi {
             String title = firstString(item, "episodeTitle", "title", "name");
             int number = parseEpisodeNumber(firstString(item, "episodeNumber", "number", "sort"));
             EpisodeMatch match = new EpisodeMatch(id, title, number);
+            int candidateSeason = getSeasonNumber(item, title);
             if (first == null) first = match;
             if (firstMandarin == null && isMandarinTitle(title)) firstMandarin = match;
+            if (targetSeason > 0 && targetSeason != candidateSeason) continue;
             if (!TextUtils.isEmpty(episode) && !TextUtils.isEmpty(title) && title.contains(episode)) {
                 return match;
             }
@@ -632,6 +635,14 @@ public class DanmakuApi {
         } catch (Throwable th) {
             return DanmuEpisodeMatcher.episodeNumber(value);
         }
+    }
+
+    private static int getSeasonNumber(JSONObject item, String title) {
+        int number = DanmuEpisodeMatcher.seasonNumber(title);
+        if (number > 0) return number;
+        String value = firstString(item, "seasonNumber", "season", "seasonNo", "season_num");
+        number = DanmuEpisodeMatcher.seasonNumber(value);
+        return number > 0 ? number : parseEpisodeNumber(value);
     }
 
     private static int extractNumber(String text) {

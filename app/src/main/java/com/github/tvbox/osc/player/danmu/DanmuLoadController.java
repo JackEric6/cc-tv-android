@@ -214,7 +214,7 @@ public class DanmuLoadController {
                     parser = new Parser(danmu, () -> seq != loadSeq.get());
                     if (seq != loadSeq.get()) return;
                     danmuCount = parser.getDanmuCount();
-                } catch (RuntimeException th) {
+                } catch (Throwable th) {
                     LOG.e("echo-danmu parse error: " + th.getMessage());
                     dispatchLoadFailed(seq);
                     return;
@@ -237,7 +237,6 @@ public class DanmuLoadController {
                             return;
                         }
                         danmuView.prepare(parser, danmakuContext);
-                        clearLoadCallback(seq);
                         danmuView.setVisibility(isDisplayEnabled() ? View.VISIBLE : View.GONE);
                         startIfReady(seq);
                         danmuView.postDelayed(() -> startIfReady(seq), 300);
@@ -290,11 +289,18 @@ public class DanmuLoadController {
             return;
         }
         long position = videoView.getCurrentPosition();
-        danmuView.setVisibility(View.VISIBLE);
-        danmuView.seekTo(position);
-        danmuView.start(position);
-        startedSeq = seq;
-        LOG.i("echo-danmu start at: " + position);
+        try {
+            danmuView.setVisibility(View.VISIBLE);
+            danmuView.seekTo(position);
+            danmuView.start(position);
+            startedSeq = seq;
+            clearLoadCallback(seq);
+            LOG.i("echo-danmu start at: " + position);
+        } catch (Throwable th) {
+            LOG.e("echo-danmu start error: " + th.getMessage());
+            danmuView.setVisibility(View.GONE);
+            notifyLoadFailed(seq);
+        }
     }
 
     private boolean isVideoReady() {
@@ -329,16 +335,23 @@ public class DanmuLoadController {
         if (danmuView == null || !DanmuHelper.isOpen() || temporarilyClosed || settingsHidden) return;
         int seq = loadSeq.get();
         if (danmuView.isPrepared()) {
-            long position = videoView == null ? 0L : videoView.getCurrentPosition();
-            danmuView.setVisibility(View.VISIBLE);
-            danmuView.seekTo(position);
-            if (videoView != null && videoView.isPlaying()) {
-                if (startedSeq == seq) {
-                    danmuView.resume();
-                } else {
-                    danmuView.start(position);
-                    startedSeq = seq;
+            try {
+                long position = videoView == null ? 0L : videoView.getCurrentPosition();
+                danmuView.setVisibility(View.VISIBLE);
+                danmuView.seekTo(position);
+                if (videoView != null && videoView.isPlaying()) {
+                    if (startedSeq == seq) {
+                        danmuView.resume();
+                    } else {
+                        danmuView.start(position);
+                        startedSeq = seq;
+                        clearLoadCallback(seq);
+                    }
                 }
+            } catch (Throwable th) {
+                LOG.e("echo-danmu restore error: " + th.getMessage());
+                danmuView.setVisibility(View.GONE);
+                notifyLoadFailed(seq);
             }
             return;
         }

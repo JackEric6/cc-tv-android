@@ -17,6 +17,10 @@ public class DanmuSearchResult {
         return TextUtils.isEmpty(name) ? getUrl() : name;
     }
 
+    public String getEpisodeName() {
+        return TextUtils.isEmpty(name) ? "" : name;
+    }
+
     public String getUrl() {
         return url == null ? "" : url;
     }
