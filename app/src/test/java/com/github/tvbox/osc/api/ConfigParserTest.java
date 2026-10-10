@@ -68,6 +68,16 @@ public class ConfigParserTest {
         assertFalse(ConfigParser.isLiveJsonContent(null));
     }
 
+    @Test
+    public void isLiveChannelGroups_distinguishesBundledChannelsFromConfigEntries() {
+        assertTrue(ConfigParser.isLiveChannelGroups(jsonArray(
+                "[{\"group\":\"央视\",\"channels\":[{\"name\":\"CCTV-10\",\"urls\":[\"https://example.test/live.m3u8\"]}]}]")));
+        assertFalse(ConfigParser.isLiveChannelGroups(jsonArray(
+                "[{\"name\":\"仓A\",\"url\":\"https://example.test/live.txt\"}]")));
+        assertFalse(ConfigParser.isLiveChannelGroups(jsonArray("[]")));
+        assertFalse(ConfigParser.isLiveChannelGroups(null));
+    }
+
     // ---------- m3u 头部 EPG 地址 ----------
 
     @Test

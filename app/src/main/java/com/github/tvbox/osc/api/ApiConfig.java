@@ -1150,20 +1150,29 @@ public class ApiConfig {
         initLiveSettings();
         if(infoJson.has("lives")){
             JsonArray lives_groups=infoJson.get("lives").getAsJsonArray();
+            if (ConfigParser.isLiveChannelGroups(lives_groups)) {
+                spiderLoader.setLiveSpider("");
+                spiderLoader.resetCurrentLiveSpider();
+                KV.put(HawkConfig.LIVE_GROUP_LIST, new JsonArray());
+                KV.put(HawkConfig.EPG_URL, DefaultConfig.safeJsonString(infoJson, "epg", ""));
+                KV.put(HawkConfig.LIVE_PLAY_TYPE, KV.get(HawkConfig.PLAY_TYPE, 2));
+                KV.put(HawkConfig.LIVE_WEB_HEADER, null);
+                loadLives(lives_groups);
+            } else {
+                int live_group_index=getLiveGroupIndex();
+                if(live_group_index>lives_groups.size()-1)live_group_index=0;
+                KV.put(HawkConfig.LIVE_GROUP_LIST,lives_groups);
+                //加载多源配置
+                try {
+                    liveSettingGroupList.get(5).setLiveSettingItems(ConfigParser.parseLiveSettingItems(lives_groups));
+                } catch (Exception e) {
+                    // 捕获任何可能发生的异常
+                    e.printStackTrace();
+                }
 
-            int live_group_index=getLiveGroupIndex();
-            if(live_group_index>lives_groups.size()-1)live_group_index=0;
-            KV.put(HawkConfig.LIVE_GROUP_LIST,lives_groups);
-            //加载多源配置
-            try {
-                liveSettingGroupList.get(5).setLiveSettingItems(ConfigParser.parseLiveSettingItems(lives_groups));
-            } catch (Exception e) {
-                // 捕获任何可能发生的异常
-                e.printStackTrace();
+                JsonObject livesOBJ = lives_groups.get(live_group_index).getAsJsonObject();
+                loadLiveApi(livesOBJ);
             }
-
-            JsonObject livesOBJ = lives_groups.get(live_group_index).getAsJsonObject();
-            loadLiveApi(livesOBJ);
         }
 
         myHosts = new HashMap<>();

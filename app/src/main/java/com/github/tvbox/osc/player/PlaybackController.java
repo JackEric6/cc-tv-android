@@ -22,6 +22,8 @@ import com.github.tvbox.osc.api.ApiConfig;
 import com.github.tvbox.osc.api.SourceStreamHealth;
 import com.github.tvbox.osc.base.App;
 import com.github.tvbox.osc.api.DanmakuApi;
+import com.github.tvbox.osc.api.DanmuEpisodeMatcher;
+import com.github.tvbox.osc.bean.DanmuSearchResult;
 import com.github.tvbox.osc.bean.ParseBean;
 import com.github.tvbox.osc.bean.SourceBean;
 import com.github.tvbox.osc.bean.VodInfo;
@@ -49,6 +51,7 @@ import org.json.JSONObject;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -1199,10 +1202,9 @@ public class PlaybackController {
                             if (view != null) view.showParse(false);
                             if (view != null) playUrl(playUrl + url, headers);
                         }
-                        // 弹幕与视频并行加载：源提供的地址优先使用；为空则立即搜索，解析为空时自动换用搜索结果。
-                        if (TextUtils.isEmpty(danmaku)) {
-                            searchDanmu();
-                        } else {
+                        // 搜索已在本集取流开始时并行启动；资源站自带弹幕时取消旧搜索并优先加载它。
+                        if (!TextUtils.isEmpty(danmaku)) {
+                            DanmakuApi.cancel();
                             checkDanmu(danmaku, PlaybackController.this::searchDanmu);
                         }
                     } catch (Throwable th) {
@@ -1308,22 +1310,89 @@ public class PlaybackController {
     private void searchDanmu() {
         if (!DanmakuApi.canSearch() || vod() == null) return;
         VodInfo.VodSeries series = currentSeries(vod().playFlag, vod().playIndex);
+        String title = vod().name;
+        String episode = series == null ? "" : series.name;
         String key = progressKey();
-        DanmakuApi.search(vod().name, series == null ? "" : series.name, new DanmakuApi.SearchCallback() {
+        DanmakuApi.search(title, episode, new DanmakuApi.SearchCallback() {
             @Override
             public void onFound(String url) {
-                if (!TextUtils.equals(key, progressKey())) return;
+                if (!isCurrentDanmuSearch(key)) return;
                 checkDanmu(url, () -> {
-                    if (TextUtils.equals(key, progressKey())) checkDanmu("", null);
+                    if (isCurrentDanmuSearch(key)) searchDanmuCandidates(title, episode, key);
                 });
             }
 
             @Override
             public void onNotFound() {
-                if (!TextUtils.equals(key, progressKey())) return;
-                checkDanmu("", null);
+                if (!isCurrentDanmuSearch(key)) return;
+                searchDanmuCandidates(title, episode, key);
             }
         });
+    }
+
+    private void searchDanmuCandidates(String title, String episode, String key) {
+        if (!isCurrentDanmuSearch(key)) return;
+        DanmakuApi.searchList(title, episode, new DanmakuApi.SearchListCallback() {
+            @Override
+            public void onSuccess(List<DanmuSearchResult> results) {
+                if (!isCurrentDanmuSearch(key)) return;
+                List<DanmuSearchResult> matches = new ArrayList<>();
+                int targetEpisode = DanmuEpisodeMatcher.episodeNumber(episode);
+                if (results != null) {
+                    for (DanmuSearchResult result : results) {
+                        if (result == null) continue;
+                        int candidateEpisode = DanmuEpisodeMatcher.episodeNumber(result.getName());
+                        if (targetEpisode > 0 && candidateEpisode == targetEpisode) {
+                            matches.add(result);
+                        } else if (targetEpisode <= 0 && !TextUtils.isEmpty(episode)
+                                && result.getName().contains(episode)) {
+                            matches.add(result);
+                        }
+                    }
+                    if (matches.isEmpty() && results.size() == 1 && results.get(0) != null) {
+                        matches.add(results.get(0));
+                    }
+                }
+                if (matches.isEmpty()) {
+                    checkDanmu("", null);
+                    return;
+                }
+                tryDanmuCandidate(matches, 0, key);
+            }
+
+            @Override
+            public void onError(String message) {
+                if (isCurrentDanmuSearch(key)) checkDanmu("", null);
+            }
+        });
+    }
+
+    private void tryDanmuCandidate(List<DanmuSearchResult> candidates, int index, String key) {
+        if (!isCurrentDanmuSearch(key)) return;
+        if (index >= candidates.size()) {
+            checkDanmu("", null);
+            return;
+        }
+        DanmakuApi.loadSearchResult(candidates.get(index), new DanmakuApi.SearchResultCallback() {
+            @Override
+            public void onSuccess(String danmu) {
+                if (!isCurrentDanmuSearch(key)) return;
+                if (TextUtils.isEmpty(danmu)) {
+                    tryDanmuCandidate(candidates, index + 1, key);
+                    return;
+                }
+                checkDanmu(danmu, () -> tryDanmuCandidate(candidates, index + 1, key));
+            }
+
+            @Override
+            public void onError(String message) {
+                tryDanmuCandidate(candidates, index + 1, key);
+            }
+        });
+    }
+
+    private boolean isCurrentDanmuSearch(String key) {
+        return DanmakuApi.canSearch() && TextUtils.equals(key, progressKey());
     }
 
     private void checkDanmu(String danmaku, Runnable onFailed) {
@@ -1460,6 +1529,7 @@ public class PlaybackController {
         ImgUtil.clearMemoryCache();
         setSubtitleCacheKey(vod().sourceKey + "-" + vod().id + "-" + vod().playFlag + "-" + vod().playIndex + "-" + vs.name + "-subt");
         setProgressKey(vod().sourceKey + vod().id + vod().playFlag + vod().playIndex + vs.name);
+        searchDanmu();
         startResolvePlayUrlTimeout();
         // 换源点击即停前记下的进度:新源进度键不同,写进新键缓存接着看(新键已有历史记录则不覆盖);
         // 回滚原源时键相同,停播 release 已落盘,该方法会直接跳过
@@ -1486,7 +1556,6 @@ public class PlaybackController {
         if (Jianpian.isJpUrl(vs.url)) {// 荐片地址特殊判断
             String jp_url = vs.url;
             if (view != null) view.showParse(false);
-            searchDanmu();
             if (vs.url.startsWith("tvbox-xg:")) {
                 playUrl(Jianpian.JPUrlDec(jp_url.substring(9)), null);
             } else {
@@ -1498,7 +1567,6 @@ public class PlaybackController {
         // 也必须直接交给应用内播放器，不能落入 sourceViewModel.getPlay() 的资源站链路。
         if (OFFLINE_SOURCE_KEY.equalsIgnoreCase(sourceKey())) {
             if (view != null) view.showParse(false);
-            searchDanmu();
             playUrl(vs.url, null);
             return;
         }
@@ -1507,7 +1575,6 @@ public class PlaybackController {
         // 会把首帧延迟放大到数秒，并且某些站点会把直链误判成待解析页面。
         if (isDirectMediaUrl(vs.url)) {
             if (view != null) view.showParse(false);
-            searchDanmu();
             playUrl(vs.url, null);
             return;
         }
@@ -1529,7 +1596,6 @@ public class PlaybackController {
             }
         })) {
             if (view != null) view.showParse(false);
-            searchDanmu();
             return;
         }
 

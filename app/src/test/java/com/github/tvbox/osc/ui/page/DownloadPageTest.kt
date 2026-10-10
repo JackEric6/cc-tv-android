@@ -25,6 +25,18 @@ class DownloadPageTest {
     }
 
     @Test
+    fun batchPauseAndResumeOnlyEnableForMatchingTaskStates() {
+        assertTrue(canPauseDownload(OfflineVideoCache.TaskStatus.QUEUED))
+        assertTrue(canPauseDownload(OfflineVideoCache.TaskStatus.DOWNLOADING))
+        assertFalse(canPauseDownload(OfflineVideoCache.TaskStatus.PAUSED))
+        assertFalse(canPauseDownload(OfflineVideoCache.TaskStatus.COMPLETED))
+        assertTrue(canResumeDownload(OfflineVideoCache.TaskStatus.PAUSED))
+        assertFalse(canResumeDownload(OfflineVideoCache.TaskStatus.QUEUED))
+        assertFalse(canResumeDownload(OfflineVideoCache.TaskStatus.DOWNLOADING))
+        assertFalse(canResumeDownload(OfflineVideoCache.TaskStatus.FAILED))
+    }
+
+    @Test
     fun pausedTasksBelongToActiveTab() {
         assertEquals(0, downloadTabFor(OfflineVideoCache.TaskStatus.QUEUED))
         assertEquals(0, downloadTabFor(OfflineVideoCache.TaskStatus.DOWNLOADING))
@@ -86,11 +98,11 @@ class DownloadPageTest {
     }
 
     @Test
-    fun estimatedTotalUsesDisplayedProgressWhenCoreTotalIsUnknown() {
-        assertEquals(4_000L, estimateTotalBytes(1_000L, -1L, 25))
-        assertEquals(4_000L, estimateTotalBytes(1_000L, 4_000L, 25))
-        assertEquals(-1L, estimateTotalBytes(1_000L, -1L, -1))
-        assertEquals(-1L, estimateTotalBytes(1_000L, -1L, 100))
+    fun estimatedTotalRequiresReliableByteTotalOrDurationSample() {
+        assertEquals(4_000L, estimateTotalBytes(1_000L, -1L, 4_000L))
+        assertEquals(4_000L, estimateTotalBytes(1_000L, 4_000L, 2_000L))
+        assertEquals(1_500L, estimateTotalBytes(1_500L, -1L, 1_000L))
+        assertEquals(-1L, estimateTotalBytes(1_000L, -1L))
     }
 
     @Test
@@ -105,10 +117,10 @@ class DownloadPageTest {
         )
 
         assertEquals(3, totals.unfinishedTasks)
-        assertEquals(1, totals.unknownTasks)
-        assertEquals(840L, totals.downloadedBytes)
-        assertEquals(1_100L, totals.totalBytes)
-        assertEquals(76, totals.progressPercent)
+        assertEquals(2, totals.unknownTasks)
+        assertEquals(790L, totals.downloadedBytes)
+        assertEquals(1_000L, totals.totalBytes)
+        assertEquals(79, totals.progressPercent)
     }
 
     @Test

@@ -169,6 +169,10 @@ public class OfflineVideoCacheTest {
     public void durationBasedEstimateScalesObservedBytesToEpisodeDuration() {
         assertEquals(1_800_000L,
                 OfflineVideoCache.estimateTotalBytesFromDuration(300_000L, 600_000L, 3_600_000L));
+        assertEquals(169_320_000L,
+                OfflineVideoCache.estimateTotalBytesFromDuration(300_000L, 15_000L, 8_466_000L));
+        assertEquals(-1L,
+                OfflineVideoCache.estimateTotalBytesFromDuration(100_000L, 14_999L, 8_466_000L));
         assertEquals(-1L,
                 OfflineVideoCache.estimateTotalBytesFromDuration(300_000L, 0L, 3_600_000L));
         assertEquals(-1L,

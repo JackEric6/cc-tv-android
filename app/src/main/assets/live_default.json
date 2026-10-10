@@ -1,13 +1,32 @@
 {
   "lives": [
     {
-      "group": "公开验证源",
+      "group": "央视",
       "channels": [
         {
           "name": "CCTV-10",
           "logo": "",
           "urls": [
-            "https://cdn4.skygo.mn/live/disk1/CCTV-10/HLSv3-FTA/CCTV-10-avc1_2000000=3-mp4a_256000_eng=10.m3u8$GitHub公开源"
+            "https://cdn4.skygo.mn/live/disk1/CCTV-10/HLSv3-FTA/CCTV-10-avc1_2000000=3-mp4a_256000_eng=10.m3u8$akiralereal/iptv公开源"
+          ]
+        }
+      ]
+    },
+    {
+      "group": "卫视",
+      "channels": [
+        {
+          "name": "湖南卫视4K",
+          "logo": "",
+          "urls": [
+            "http://hlsal-ldvt.qing.mgtv.com/nn_live/nn_x64/Y2RuZXhfaWQ9YWxfaGxzX2xkdnQmZT02OTE0NjA0JnY9MSZpZD1ITldTWkdTVCZzPTcwN2RiYTc2YzJjNmJmMTQ4MmUyZGYzOWU2NWM3YWFi/HNWSZGST.m3u8$akiralereal/iptv静态源"
+          ]
+        },
+        {
+          "name": "浙江卫视4K",
+          "logo": "",
+          "urls": [
+            "http://ali-xwl.cztv.com/live/channel4k2160p.m3u8$akiralereal/iptv静态源"
           ]
         },
         {
@@ -16,7 +35,12 @@
           "urls": [
             "https://event.pull.hebtv.com/jishi/cp1.m3u8$河北公开源"
           ]
-        },
+        }
+      ]
+    },
+    {
+      "group": "其他",
+      "channels": [
         {
           "name": "哈尔滨台",
           "logo": "",

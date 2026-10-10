@@ -35,7 +35,7 @@ public class DanmakuApi {
     private static final String BUILTIN_API = "https://logvardanmu.konfan.cn/87654321";
     private static final String USE_DEFAULT_KEY = "danmu_api_use_default";
     private static final long BUILTIN_TIMEOUT = TimeUnit.SECONDS.toMillis(20);
-    private static final int BUILTIN_MAX_RETRY = 2;
+    private static final int BUILTIN_MAX_RETRY = 1;
     private static final int EPISODE_QUERY_NUMBER = 0;
     private static final int EPISODE_QUERY_EMPTY = 1;
     private static final Handler handler = new Handler(Looper.getMainLooper());
@@ -251,7 +251,7 @@ public class DanmakuApi {
                         public void run() {
                             if (isCurrentSearch(seq)) searchBuiltin(apiUrl, name, episode, callback, retry + 1, seq, queryMode);
                         }
-                    }, 1500L * (retry + 1));
+                    }, 600L);
                 } else {
                     LOG.e("echo-danmaku builtin search error: " + e.getMessage());
                     searchBuiltinAnime(baseUrl, simpleName, simpleEpisode, callback, seq, true);
@@ -456,7 +456,7 @@ public class DanmakuApi {
 
     private static String getEpisodeQuery(String episode, int queryMode) {
         if (queryMode == EPISODE_QUERY_EMPTY) return "";
-        int number = extractNumber(episode);
+        int number = DanmuEpisodeMatcher.episodeNumber(episode);
         return number > 0 ? String.valueOf(number) : "";
     }
 
@@ -627,26 +627,15 @@ public class DanmakuApi {
 
     private static int parseEpisodeNumber(String value) {
         try {
-            if (TextUtils.isEmpty(value)) return -1;
+            if (value == null || value.trim().isEmpty()) return -1;
             return (int) Float.parseFloat(value);
         } catch (Throwable th) {
-            return extractNumber(value);
+            return DanmuEpisodeMatcher.episodeNumber(value);
         }
     }
 
     private static int extractNumber(String text) {
-        if (TextUtils.isEmpty(text)) return -1;
-        StringBuilder builder = new StringBuilder();
-        for (int i = 0; i < text.length(); i++) {
-            char ch = text.charAt(i);
-            if (Character.isDigit(ch)) builder.append(ch);
-        }
-        if (builder.length() == 0) return -1;
-        try {
-            return Integer.parseInt(builder.toString());
-        } catch (Throwable th) {
-            return -1;
-        }
+        return DanmuEpisodeMatcher.episodeNumber(text);
     }
 
     private static String commentJsonToXml(String body) throws Exception {

@@ -80,6 +80,7 @@ public final class OfflineVideoCache {
     private static final int DIRECT_DOWNLOAD_ATTEMPTS = 4;
     private static final long DIRECT_RETRY_BASE_MS = 500L;
     private static final long MAX_FILE_BYTES = 4L * 1024L * 1024L * 1024L;
+    private static final long MIN_DURATION_ESTIMATE_SAMPLE_MS = 15_000L;
     /** Shared cap for independent offline downloads across direct, HLS, and transformed media. */
     static final int MAX_ACTIVE_DOWNLOADS = 5;
     private static final Semaphore DOWNLOAD_SLOTS =
@@ -1450,9 +1451,9 @@ public final class OfflineVideoCache {
             int safePercent = (int) Math.min(99L,
                     Math.max(0L, completedDurationMs * 100L / totalDurationMs));
             task.progressPercent = Math.max(task.progressPercent, safePercent);
-            if (task.totalBytes <= 0L && candidateTotal > 0L) {
-                task.estimatedTotalBytes = smoothEstimatedTotalBytes(
-                        task.estimatedTotalBytes, candidateTotal);
+            if (task.totalBytes <= 0L && candidateTotal > 0L
+                    && completedDurationMs >= MIN_DURATION_ESTIMATE_SAMPLE_MS) {
+                task.estimatedTotalBytes = candidateTotal;
             }
             task.updatedAt = Math.max(System.currentTimeMillis(), task.updatedAt + 1L);
             persistTasksLocked();
@@ -1462,16 +1463,11 @@ public final class OfflineVideoCache {
 
     static long estimateTotalBytesFromDuration(long completedBytes, long completedDurationMs,
                                                long totalDurationMs) {
-        if (completedBytes <= 0L || completedDurationMs <= 0L
+        if (completedBytes <= 0L || completedDurationMs < MIN_DURATION_ESTIMATE_SAMPLE_MS
                 || totalDurationMs < completedDurationMs) return -1L;
         double estimate = completedBytes * (double) totalDurationMs / completedDurationMs;
         if (!Double.isFinite(estimate) || estimate <= 0.0 || estimate > MAX_FILE_BYTES) return -1L;
         return Math.max(completedBytes, Math.round(estimate));
-    }
-
-    private static long smoothEstimatedTotalBytes(long previous, long candidate) {
-        if (previous <= 0L) return candidate;
-        return Math.max(1L, Math.round(previous * 0.75 + candidate * 0.25));
     }
 
     /** Media3 Transformer 只提供百分比，不提供文件总字节数；保留真实字节速度并单独更新百分比。 */

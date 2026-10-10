@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -64,6 +65,18 @@ fun DanmuSettingSheet(sheet: DanmuSettingSheetState, onDismiss: () -> Unit) {
                 var size by remember { mutableIntStateOf(Math.round(DanmuHelper.getSizeScale() * 10)) }
                 var line by remember { mutableIntStateOf(DanmuHelper.getMaxLine()) }
                 var alpha by remember { mutableIntStateOf(Math.round(DanmuHelper.getAlpha() * 100)) }
+                var danmuEnabled by remember { mutableStateOf(DanmuHelper.isOpen()) }
+
+                SheetLabelRow("弹幕显示") {
+                    Switch(
+                        checked = danmuEnabled,
+                        onCheckedChange = { enabled ->
+                            danmuEnabled = enabled
+                            DanmuHelper.setOpen(enabled)
+                            postSettings(false)
+                        },
+                    )
+                }
 
                 SheetLabelRow("在线弹幕") {
                     SheetButton(

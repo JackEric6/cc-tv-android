@@ -119,6 +119,16 @@ class DownloadViewModel : ViewModel() {
     fun cancel(task: OfflineVideoCache.TaskSnapshot) = perform { OfflineVideoCache.cancel(it, task.id) }
     fun resume(task: OfflineVideoCache.TaskSnapshot) = perform { OfflineVideoCache.retry(it, task.id) }
     fun retry(task: OfflineVideoCache.TaskSnapshot) = perform { OfflineVideoCache.retry(it, task.id) }
+    fun pauseAll(tasks: List<OfflineVideoCache.TaskSnapshot>) = perform { context ->
+        tasks.filter { canPauseDownload(it.status) }
+            .forEach { OfflineVideoCache.pause(context, it.id) }
+        true
+    }
+    fun resumeAll(tasks: List<OfflineVideoCache.TaskSnapshot>) = perform { context ->
+        tasks.filter { canResumeDownload(it.status) }
+            .forEach { OfflineVideoCache.retry(context, it.id) }
+        true
+    }
     fun delete(task: OfflineVideoCache.TaskSnapshot) = perform { OfflineVideoCache.delete(it, task.id) }
     fun deleteAll(ids: Set<String>) = perform { context ->
         ids.forEach { OfflineVideoCache.delete(context, it) }
@@ -143,6 +153,13 @@ internal fun shouldRefreshBoundContext(
 
 internal fun downloadTabIsCurrent(currentTab: Int, downloadTab: Int): Boolean =
     currentTab == downloadTab
+
+internal fun canPauseDownload(status: OfflineVideoCache.TaskStatus): Boolean =
+    status == OfflineVideoCache.TaskStatus.QUEUED ||
+        status == OfflineVideoCache.TaskStatus.DOWNLOADING
+
+internal fun canResumeDownload(status: OfflineVideoCache.TaskStatus): Boolean =
+    status == OfflineVideoCache.TaskStatus.PAUSED
 
 internal data class DownloadProgressInput(
     val status: OfflineVideoCache.TaskStatus,
@@ -175,7 +192,7 @@ internal fun aggregateDownloadTotals(tasks: List<DownloadProgressInput>): Overal
         unfinished++
         val currentBytes = task.downloadedBytes.coerceAtLeast(0L)
         val taskTotal = estimateTotalBytes(
-            currentBytes, task.totalBytes, task.progressPercent, task.estimatedTotalBytes,
+            currentBytes, task.totalBytes, task.estimatedTotalBytes,
         )
         if (taskTotal <= 0L) {
             unknown++
@@ -207,6 +224,9 @@ fun DownloadPage(
     var deleteConfirmationIds by remember { mutableStateOf<Set<String>?>(null) }
     val taskIds = tasks.mapTo(linkedSetOf()) { it.id }
     val allSelected = taskIds.isNotEmpty() && selectedIds.containsAll(taskIds)
+    val selectedTasks = tasks.filter { it.id in selectedIds }
+    val selectedPausableTasks = selectedTasks.filter { canPauseDownload(it.status) }
+    val selectedPausedTasks = selectedTasks.filter { canResumeDownload(it.status) }
 
     LaunchedEffect(taskIds) {
         selectedIds = selectedIds.intersect(taskIds)
@@ -298,9 +318,35 @@ fun DownloadPage(
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
+                if (editMode) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = "已选 ${selectedIds.size}",
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        OutlinedButton(
+                            enabled = selectedPausableTasks.isNotEmpty(),
+                            onClick = { vm.pauseAll(selectedPausableTasks) },
+                        ) {
+                            Text("暂停 ${selectedPausableTasks.size}")
+                        }
+                        Button(
+                            enabled = selectedPausedTasks.isNotEmpty(),
+                            onClick = { vm.resumeAll(selectedPausedTasks) },
+                        ) {
+                            Text("继续 ${selectedPausedTasks.size}")
+                        }
+                    }
+                }
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
@@ -653,7 +699,6 @@ private fun DownloadTaskRow(
             val estimatedTotalBytes = estimateTotalBytes(
                 visibleDownloadedBytes,
                 visibleTotalBytes,
-                percent,
                 currentTask.estimatedTotalBytes,
             )
             Text(
@@ -750,13 +795,11 @@ private fun formatByteCount(bytes: Long): String {
 internal fun estimateTotalBytes(
     downloadedBytes: Long,
     totalBytes: Long,
-    percent: Int,
     explicitEstimateBytes: Long = -1L,
 ): Long {
     if (totalBytes > 0L) return totalBytes
     if (explicitEstimateBytes > 0L) return maxOf(downloadedBytes, explicitEstimateBytes)
-    if (downloadedBytes <= 0L || percent !in 1..99) return -1L
-    return (downloadedBytes * 100L / percent).coerceAtLeast(downloadedBytes)
+    return -1L
 }
 
 internal data class OverallDownloadSpeedSample(

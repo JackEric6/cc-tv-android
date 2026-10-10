@@ -124,7 +124,8 @@ class PlayerUiState {
     /** 解码按钮:IJK(内核 options)与 EXO(media3 视频解码选择器)都有软解路径(2026-09-17 放开 EXO) */
     val ijkBtnVisible: Boolean get() = playerType == 1 || playerType == 2
     val trackBtnVisible: Boolean get() = playerType == 1 || playerType == 2
-    val danmuBtnVisible: Boolean get() = danmuOpen
+    // 设置入口必须在总开关关闭时仍可见，否则用户无法从播放器内重新开启。
+    val danmuBtnVisible: Boolean get() = true
     val danmuSearchBtnVisible: Boolean get() = danmuSearchAvailable
     val castBtnVisible: Boolean get() = android.os.Build.VERSION.SDK_INT >= 30
 

@@ -60,6 +60,20 @@ final class ConfigParser {
         return text.startsWith("{");
     }
 
+    /** Distinguishes channel-group JSON from remote live-config entries (api/url/type). */
+    static boolean isLiveChannelGroups(JsonArray lives) {
+        if (lives == null || lives.size() == 0) return false;
+        for (JsonElement element : lives) {
+            if (element == null || !element.isJsonObject()) return false;
+            JsonObject group = element.getAsJsonObject();
+            if (!group.has("group") || !group.get("group").isJsonPrimitive()
+                    || !group.has("channels") || !group.get("channels").isJsonArray()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     /** 从 m3u 头部 #EXTM3U 行取 EPG 地址,依次尝试 x-tvg-url / tvg-url / url-tvg */
     static String extractLiveTextEpg(String content) {
         if (content == null) return "";

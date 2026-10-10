@@ -35,8 +35,10 @@ public class DanmuLoadController {
     private String danmuTitle = "";
     private String danmuEpisode = "";
     private int startedSeq = -1;
+    private int preparingSeq = -1;
     private boolean pendingPrepare;
     private boolean temporarilyClosed;
+    private boolean settingsHidden;
     private LoadCallback loadCallback;
 
     public DanmuLoadController(MyVideoView videoView, PlayerControlApi controller, DanmakuView danmuView) {
@@ -64,7 +66,8 @@ public class DanmuLoadController {
     public void applySettings(boolean reload) {
         if (danmuView == null || danmakuContext == null) return;
         if (!DanmuHelper.isOpen()) {
-            releaseView();
+            settingsHidden = true;
+            hideView();
             if (controller != null) controller.setHasDanmu(!TextUtils.isEmpty(danmuText));
             return;
         }
@@ -80,6 +83,15 @@ public class DanmuLoadController {
                 .setScaleTextSize(DanmuHelper.getSizeScale());
         danmakuContext.setDanmakuStyle(IDisplayer.DANMAKU_STYLE_STROKEN, 3)
                 .setDanmakuMargin(8);
+        if (settingsHidden) {
+            settingsHidden = false;
+            if (temporarilyClosed) {
+                danmuView.setVisibility(View.GONE);
+            } else {
+                restoreOrPrepare();
+            }
+            return;
+        }
         if (reload && !TextUtils.isEmpty(danmuText) && DanmuHelper.isOpen()) {
             prepare(danmuText);
         }
@@ -96,13 +108,22 @@ public class DanmuLoadController {
     public void check(String danmu, String title, String episode, LoadCallback callback) {
         loadCallback = callback;
         temporarilyClosed = false;
+        settingsHidden = !DanmuHelper.isOpen();
         danmuText = TextUtils.isEmpty(danmu) ? "" : danmu.trim();
         danmuTitle = TextUtils.isEmpty(title) ? "" : title;
         danmuEpisode = TextUtils.isEmpty(episode) ? "" : episode;
+        loadSeq.incrementAndGet();
+        preparingSeq = -1;
+        pendingPrepare = false;
         releaseView();
         boolean hasDanmu = !TextUtils.isEmpty(danmuText);
         if (controller != null) controller.setHasDanmu(hasDanmu);
-        if (!hasDanmu || !DanmuHelper.isOpen()) {
+        if (!hasDanmu) {
+            if (danmuView != null) danmuView.setVisibility(View.GONE);
+            return;
+        }
+        if (!DanmuHelper.isOpen()) {
+            pendingPrepare = true;
             if (danmuView != null) danmuView.setVisibility(View.GONE);
             return;
         }
@@ -132,7 +153,9 @@ public class DanmuLoadController {
         pendingPrepare = false;
         loadCallback = null;
         loadSeq.incrementAndGet();
+        preparingSeq = -1;
         startedSeq = -1;
+        settingsHidden = false;
         if (controller != null) controller.setHasDanmu(false);
         releaseView();
     }
@@ -148,18 +171,18 @@ public class DanmuLoadController {
     public boolean toggle() {
         if (temporarilyClosed) {
             temporarilyClosed = false;
-            reloadForPlayback();
-            startIfReady();
+            restoreOrPrepare();
             return true;
         }
         temporarilyClosed = true;
-        close();
+        hideView();
         return false;
     }
 
     public void reloadForPlayback() {
         temporarilyClosed = false;
         loadSeq.incrementAndGet();
+        preparingSeq = -1;
         startedSeq = -1;
         releaseView();
         pendingPrepare = !TextUtils.isEmpty(danmuText) && DanmuHelper.isOpen();
@@ -177,6 +200,7 @@ public class DanmuLoadController {
         if (TextUtils.isEmpty(danmu)) return;
         pendingPrepare = false;
         int seq = loadSeq.incrementAndGet();
+        preparingSeq = seq;
         startedSeq = -1;
         LOG.i("echo-danmu load title: " + safeLog(danmuTitle) + ", episode: " + safeLog(danmuEpisode) + ", source: " + getSourceSummary(danmu));
         if (executor == null || executor.isShutdown()) {
@@ -190,6 +214,7 @@ public class DanmuLoadController {
             if (danmuView == null) return;
             danmuView.post(() -> {
                 if (seq != loadSeq.get() || danmakuContext == null) return;
+                preparingSeq = -1;
                 try {
                     danmuView.release();
                     if (videoView != null) videoView.setDanmuView(danmuView);
@@ -201,7 +226,7 @@ public class DanmuLoadController {
                     }
                     danmuView.prepare(parser, danmakuContext);
                     clearLoadCallback(seq);
-                    danmuView.setVisibility(DanmuHelper.isOpen() ? View.VISIBLE : View.GONE);
+                    danmuView.setVisibility(isDisplayEnabled() ? View.VISIBLE : View.GONE);
                     startIfReady(seq);
                     danmuView.postDelayed(() -> startIfReady(seq), 300);
                     danmuView.postDelayed(() -> startIfReady(seq), 1000);
@@ -232,7 +257,7 @@ public class DanmuLoadController {
                 || !videoView.isPlaying()
                 || danmuView == null
                 || !danmuView.isPrepared()
-                || !DanmuHelper.isOpen()) {
+                || !isDisplayEnabled()) {
             return;
         }
         long position = videoView.getCurrentPosition();
@@ -259,6 +284,48 @@ public class DanmuLoadController {
             LOG.e("DanmuLoadController", "danmu view release failed", th);
         }
         danmuView.setVisibility(View.GONE);
+    }
+
+    private void hideView() {
+        if (danmuView == null) return;
+        try {
+            if (danmuView.isPrepared()) danmuView.pause();
+        } catch (Throwable th) {
+            LOG.e("DanmuLoadController", "danmu view pause failed", th);
+        }
+        danmuView.setVisibility(View.GONE);
+    }
+
+    private void restoreOrPrepare() {
+        if (danmuView == null || !DanmuHelper.isOpen() || temporarilyClosed || settingsHidden) return;
+        int seq = loadSeq.get();
+        if (danmuView.isPrepared()) {
+            long position = videoView == null ? 0L : videoView.getCurrentPosition();
+            danmuView.setVisibility(View.VISIBLE);
+            danmuView.seekTo(position);
+            if (videoView != null && videoView.isPlaying()) {
+                if (startedSeq == seq) {
+                    danmuView.resume();
+                } else {
+                    danmuView.start(position);
+                    startedSeq = seq;
+                }
+            }
+            return;
+        }
+        if (preparingSeq == seq) return;
+        if (!TextUtils.isEmpty(danmuText) && DanmuHelper.isOpen()) {
+            if (isVideoReady()) {
+                pendingPrepare = false;
+                prepare(danmuText);
+            } else {
+                pendingPrepare = true;
+            }
+        }
+    }
+
+    private boolean isDisplayEnabled() {
+        return DanmuHelper.isOpen() && !temporarilyClosed && !settingsHidden;
     }
 
     private String getSourceSummary(String danmu) {
