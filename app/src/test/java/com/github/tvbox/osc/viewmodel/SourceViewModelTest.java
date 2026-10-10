@@ -13,6 +13,13 @@ public class SourceViewModelTest {
     }
 
     @Test
+    public void guaziUsesTheIosPlaybackUserAgent() {
+        assertEquals("KSPlayer", SourceViewModel.cmsPlaybackUserAgentForSourceKey("guazi"));
+        assertEquals("KSPlayer", SourceViewModel.cmsPlaybackUserAgentForSourceKey("Guazi"));
+        assertEquals("", SourceViewModel.cmsPlaybackUserAgentForSourceKey("xigua"));
+    }
+
+    @Test
     public void yparseTokenUsesOfficialResolverPage() {
         assertEquals("https://jx.yparse.com/index.php?url=YparseToken123",
                 SourceViewModel.normalizeCmsPlaybackUrl("yparse", "YparseToken123"));

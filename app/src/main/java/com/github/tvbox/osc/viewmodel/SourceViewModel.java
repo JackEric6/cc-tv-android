@@ -1578,20 +1578,28 @@ public class SourceViewModel extends ViewModel {
     /** CMS 直链常见 CDN 会校验 Referer；给多源 CMS 的直链统一补齐站点来源。 */
     private void mergeCmsHeaders(JSONObject result, SourceBean sourceBean) {
         if (result == null || sourceBean == null) return;
-        String referer = cmsReferer(sourceBean.getKey());
-        if (TextUtils.isEmpty(referer)) return;
+        String sourceKey = sourceBean.getKey();
+        String referer = cmsReferer(sourceKey);
+        String userAgent = cmsPlaybackUserAgentForSourceKey(sourceKey);
+        if (TextUtils.isEmpty(referer) && TextUtils.isEmpty(userAgent)) return;
         try {
             JSONObject header = result.optJSONObject("header");
             if (header == null) header = result.optJSONObject("headers");
             if (header == null) header = new JSONObject();
-            if (!header.has("User-Agent")) {
+            if (!TextUtils.isEmpty(userAgent)) {
+                header.put("User-Agent", userAgent);
+            } else if (!header.has("User-Agent")) {
                 header.put("User-Agent", "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36");
             }
-            if (!header.has("Referer")) header.put("Referer", referer);
+            if (!TextUtils.isEmpty(referer) && !header.has("Referer")) header.put("Referer", referer);
             result.put("header", header);
         } catch (Throwable th) {
             LOG.e("merge CMS headers failed: " + th.getMessage());
         }
+    }
+
+    static String cmsPlaybackUserAgentForSourceKey(String sourceKey) {
+        return "guazi".equalsIgnoreCase(sourceKey == null ? "" : sourceKey.trim()) ? "KSPlayer" : "";
     }
 
     private String cmsReferer(String sourceKey) {
