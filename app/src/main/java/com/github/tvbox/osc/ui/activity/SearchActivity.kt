@@ -187,12 +187,13 @@ class SearchViewModel : ViewModel() {
                     || normalizedName.contains("暴风") -> 4
                 normalizedKey == "dyttzy" || normalizedName.contains("天堂") -> 5
                 normalizedKey == "lzi" || normalizedName.contains("量子") -> 6
-                normalizedKey == "360zy" || normalizedName.contains("360") -> 7
-                normalizedKey == "fhw88" || normalizedName.contains("鑫同") -> 8
-                normalizedKey == "cz4k" || normalizedName.contains("厂长") -> 9
-                normalizedKey == "fan_moli" || normalizedName.contains("茉莉") -> 10
+                normalizedKey == "fhw88" || normalizedName.contains("鑫同") -> 7
+                normalizedKey == "cz4k" || normalizedName.contains("厂长") -> 8
+                normalizedKey == "fan_moli" || normalizedName.contains("茉莉") -> 9
                 normalizedKey == "fan_cheese" || normalizedKey == "奶酪"
-                    || normalizedName.contains("奶酪") -> 11
+                    || normalizedName.contains("奶酪") -> 10
+                normalizedKey == "fan_nomi" || normalizedKey == "糯米"
+                    || normalizedName.contains("糯米") -> 11
                 normalizedKey == "ikanbot" || normalizedName.contains("爱看") -> 12
                 normalizedKey == "zanpian" || normalizedName.contains("赞片") -> 13
                 else -> 100

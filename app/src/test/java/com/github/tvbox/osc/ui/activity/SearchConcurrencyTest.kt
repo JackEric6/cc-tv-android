@@ -24,14 +24,14 @@ class SearchConcurrencyTest {
     @Test
     fun searchSourcesUseRequestedPriorityOrder() {
         val keys = listOf(
-            "other", "zanpian", "ikanbot", "fan_cheese", "fan_moli", "cz4k", "fhw88",
-            "360zy", "lzi", "dyttzy", "bfzy", "ffzy", "xgzy", "fan_jianpian", "jianpian", "guazi",
+            "other", "360zy", "zanpian", "ikanbot", "fan_nomi", "fan_cheese", "fan_moli", "cz4k", "fhw88",
+            "lzi", "dyttzy", "bfzy", "ffzy", "xgzy", "fan_jianpian", "jianpian", "guazi",
         )
         val ordered = keys.sortedWith(compareBy { SearchViewModel.sourcePriority(it, it) })
         assertEquals(
             listOf(
                 "guazi", "fan_jianpian", "jianpian", "xgzy", "ffzy", "bfzy", "dyttzy",
-                "lzi", "360zy", "fhw88", "cz4k", "fan_moli", "fan_cheese", "ikanbot", "zanpian", "other",
+                "lzi", "fhw88", "cz4k", "fan_moli", "fan_cheese", "fan_nomi", "ikanbot", "zanpian", "other", "360zy",
             ),
             ordered,
         )
@@ -39,8 +39,9 @@ class SearchConcurrencyTest {
         assertEquals(1, SearchViewModel.sourcePriority("fan_jianpian", "荐片┃原生"))
         assertEquals(2, SearchViewModel.sourcePriority("xgzy", "西瓜"))
         assertEquals(4, SearchViewModel.sourcePriority("cms_baofeng", "暴风┃本地"))
-        assertEquals(7, SearchViewModel.sourcePriority("360zy", "360"))
-        assertEquals(11, SearchViewModel.sourcePriority("fan_cheese", "奶酪"))
+        assertEquals(100, SearchViewModel.sourcePriority("360zy", "360"))
+        assertEquals(10, SearchViewModel.sourcePriority("fan_cheese", "奶酪"))
+        assertEquals(11, SearchViewModel.sourcePriority("fan_nomi", "🍓糯米┃秒播"))
         assertEquals(12, SearchViewModel.sourcePriority("ikanbot", "爱看"))
         assertEquals(13, SearchViewModel.sourcePriority("zanpian", "赞片"))
         assertEquals(100, SearchViewModel.sourcePriority("unlisted", "其他影视源"))
