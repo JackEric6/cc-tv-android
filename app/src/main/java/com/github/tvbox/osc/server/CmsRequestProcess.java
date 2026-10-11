@@ -18,7 +18,6 @@ import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 
 import java.io.IOException;
-import java.net.Proxy;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -36,7 +35,6 @@ import java.util.concurrent.TimeUnit;
 
 import fi.iki.elonen.NanoHTTPD;
 import okhttp3.HttpUrl;
-import okhttp3.Dns;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -56,9 +54,7 @@ final class CmsRequestProcess implements RequestProcess {
     private static final int FETCH_CHILDREN_LIMIT = 4;
     private static final int FETCH_CHILDREN_TIMEOUT_SECONDS = 5;
     private static final Gson GSON = new Gson();
-    private static final OkHttpClient DIRECT_CLIENT = new OkHttpClient.Builder()
-            .dns(Dns.SYSTEM)
-            .proxy(Proxy.NO_PROXY)
+    private static final OkHttpClient DIRECT_CLIENT = OkHttp.client(25_000L).newBuilder()
             .followRedirects(true)
             .followSslRedirects(true)
             .connectTimeout(25, java.util.concurrent.TimeUnit.SECONDS)

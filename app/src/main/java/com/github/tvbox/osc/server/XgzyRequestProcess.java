@@ -9,7 +9,6 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 import java.io.IOException;
-import java.net.Proxy;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -24,7 +23,6 @@ import java.util.concurrent.TimeUnit;
 
 import fi.iki.elonen.NanoHTTPD;
 import okhttp3.HttpUrl;
-import okhttp3.Dns;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -35,9 +33,7 @@ final class XgzyRequestProcess implements RequestProcess {
     private static final String SOURCE_PARAM = "source";
     private static final String USER_AGENT = "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36";
     private static final Gson GSON = new Gson();
-    private static final OkHttpClient DIRECT_CLIENT = new OkHttpClient.Builder()
-            .dns(Dns.SYSTEM)
-            .proxy(Proxy.NO_PROXY)
+    private static final OkHttpClient DIRECT_CLIENT = OkHttp.client(20_000L).newBuilder()
             .followRedirects(true)
             .followSslRedirects(true)
             .connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)

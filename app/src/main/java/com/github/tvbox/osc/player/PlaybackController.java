@@ -1592,7 +1592,7 @@ public class PlaybackController {
         // 会把首帧延迟放大到数秒，并且某些站点会把直链误判成待解析页面。
         if (isDirectMediaUrl(vs.url)) {
             if (view != null) view.showParse(false);
-            playUrl(vs.url, null);
+            playUrl(vs.url, Jianpian.playHeaders(sourceKey()));
             return;
         }
         // p2p 取流是异步回调(可能数十秒):同样带发起时的代际,切集后旧地址不得起播

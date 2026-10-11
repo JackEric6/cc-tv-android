@@ -30,6 +30,16 @@ public class Jianpian {
     private static final Map<String, Boolean> PAUSED_DOWNLOADS = new HashMap<>();
     private static String playbackSource = "";
 
+    public static HashMap<String, String> playHeaders(String sourceKey) {
+        if (sourceKey == null || sourceKey.trim().isEmpty()) return null;
+        String key = sourceKey.trim().toLowerCase(java.util.Locale.ROOT);
+        if (!"jianpian".equals(key) && !"fan_jianpian".equals(key)) return null;
+        HashMap<String, String> headers = new HashMap<>();
+        headers.put("User-Agent", "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36");
+        headers.put("Referer", "https://fan123.hzhnl.com");
+        return headers;
+    }
+
     public static String JPUrlDec(String url) {
         if (App.getp2p() != null) {
             try {

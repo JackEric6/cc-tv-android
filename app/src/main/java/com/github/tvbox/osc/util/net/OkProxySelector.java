@@ -14,11 +14,9 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public class OkProxySelector extends ProxySelector {
 
     private final List<ProxyRule> proxy;
-    private final ProxySelector system;
 
     public OkProxySelector() {
         proxy = new CopyOnWriteArrayList<>();
-        system = ProxySelector.getDefault();
     }
 
     public synchronized void addAll(List<ProxyRule> items) {
@@ -39,6 +37,7 @@ public class OkProxySelector extends ProxySelector {
     }
 
     private List<java.net.Proxy> fallback(URI uri) {
+        ProxySelector system = ProxySelector.getDefault();
         if (system != null && uri != null) return system.select(uri);
         List<java.net.Proxy> result = new ArrayList<>();
         result.add(java.net.Proxy.NO_PROXY);
@@ -64,6 +63,7 @@ public class OkProxySelector extends ProxySelector {
 
     @Override
     public void connectFailed(URI uri, SocketAddress socketAddress, IOException e) {
+        ProxySelector system = ProxySelector.getDefault();
         if (system != null) system.connectFailed(uri, socketAddress, e);
     }
 

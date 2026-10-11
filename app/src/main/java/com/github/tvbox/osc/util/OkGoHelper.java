@@ -2,6 +2,7 @@ package com.github.tvbox.osc.util;
 
 import androidx.annotation.NonNull;
 
+import com.github.catvod.net.OkDns;
 import com.github.tvbox.osc.api.ApiConfig;
 import com.github.tvbox.osc.base.App;
 import com.github.tvbox.osc.bean.ProxyRule;
@@ -265,7 +266,7 @@ public class OkGoHelper {
             }
             else {
                 Dns dns = dnsOverHttps != null ? dnsOverHttps : Dns.SYSTEM;
-                return  dns.lookup(hostname);
+                return OkDns.lookupWithFallback(hostname, dns);
             }
         }
 

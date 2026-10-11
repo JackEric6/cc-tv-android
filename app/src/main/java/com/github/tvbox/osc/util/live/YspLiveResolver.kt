@@ -1,5 +1,6 @@
 package com.github.tvbox.osc.util.live
 
+import com.github.catvod.net.OkHttp
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -39,7 +40,7 @@ internal object YspLiveResolver {
     private val guardXor = hex("b3c953a06913ad4d")
     private val prefetchedUrls = YspPrefetchCache()
     private val fallbackUrls = YspFallbackQueue()
-    private val http = OkHttpClient.Builder()
+    private val http = OkHttp.client(5_000L).newBuilder()
         .connectTimeout(3, TimeUnit.SECONDS)
         .readTimeout(4, TimeUnit.SECONDS)
         .callTimeout(5, TimeUnit.SECONDS)
