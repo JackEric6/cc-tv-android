@@ -265,6 +265,7 @@ public class M3u8 {
         if (hasEndList(line) && line.contains(TAG_DISCONTINUITY)) {
             line = cleanDecimalPrecisionGroups(line);
             line = cleanFrameRateGroups(line);
+            line = cleanUniformDurationGroups(line);
         }
         return cleanDiscontinuityGroups(line);
     }
@@ -388,6 +389,88 @@ public class M3u8 {
         }
         LOG.i("echo-fixAdM3u8 frame rate detected: master=" + masterFrameRate + ", blocks=" + removedBlocks + ", removed=" + removableSegments);
         return normalizeMediaPlaylist(sb.toString());
+    }
+
+    /**
+     * 某些源把广告与正片写成同域名、无广告标记的 discontinuity 块，且整数切片时长无法由帧率特征识别。
+     * 只删除相对主节奏少见、且至少重复两次的整齐短块，避免把单个异质正片块误判为广告。
+     */
+    private static String cleanUniformDurationGroups(String m3u8Content) {
+        List<Group> groups = buildDiscontinuityGroups(m3u8Content.split("\\n"));
+        if (groups.size() < 4) return m3u8Content;
+
+        Map<String, Integer> cadenceCounts = new HashMap<>();
+        String[] groupCadences = new String[groups.size()];
+        for (int i = 0; i < groups.size() - 1; i++) {
+            String cadence = getUniformGroupDuration(groups.get(i));
+            groupCadences[i] = cadence;
+            if (cadence == null) continue;
+            Integer count = cadenceCounts.get(cadence);
+            cadenceCounts.put(cadence, count == null ? 1 : count + 1);
+        }
+
+        String dominantCadence = null;
+        int dominantCount = 0;
+        boolean tied = false;
+        for (Map.Entry<String, Integer> entry : cadenceCounts.entrySet()) {
+            if (entry.getValue() > dominantCount) {
+                dominantCadence = entry.getKey();
+                dominantCount = entry.getValue();
+                tied = false;
+            } else if (entry.getValue() == dominantCount) {
+                tied = true;
+            }
+        }
+        if (tied || dominantCadence == null || dominantCount < 3) return m3u8Content;
+
+        BigDecimal mainDuration = new BigDecimal(dominantCadence);
+        boolean[] removeGroups = new boolean[groups.size()];
+        int removableSegments = 0;
+        for (int i = 0; i < groups.size() - 1; i++) {
+            String cadence = groupCadences[i];
+            if (cadence == null || cadence.equals(dominantCadence)) continue;
+            Integer cadenceCount = cadenceCounts.get(cadence);
+            if (cadenceCount == null || cadenceCount < 2
+                    || cadenceCount * 1.0 / dominantCount > 0.35) continue;
+
+            BigDecimal duration = new BigDecimal(cadence);
+            if (duration.compareTo(BigDecimal.ONE) <= 0 || duration.compareTo(BigDecimal.TEN) > 0
+                    || duration.subtract(mainDuration).abs().compareTo(new BigDecimal("0.05")) < 0) continue;
+            removeGroups[i] = true;
+            removableSegments += groups.get(i).segmentCount;
+        }
+
+        int totalSegments = 0;
+        for (Group group : groups) totalSegments += group.segmentCount;
+        if (removableSegments == 0 || removableSegments > getAdSegmentLimit(m3u8Content)
+                || removableSegments > totalSegments * 0.3) return m3u8Content;
+
+        StringBuilder sb = new StringBuilder();
+        int removedBlocks = 0;
+        for (int i = 0; i < groups.size(); i++) {
+            if (removeGroups[i]) {
+                currentAdCount += groups.get(i).segmentCount;
+                removedBlocks += 1;
+            } else {
+                groups.get(i).appendTo(sb);
+            }
+        }
+        LOG.i("echo-fixAdM3u8 uniform duration cadence detected: main=" + dominantCadence
+                + ", blocks=" + removedBlocks + ", removed=" + removableSegments);
+        return normalizeMediaPlaylist(sb.toString());
+    }
+
+    private static String getUniformGroupDuration(Group group) {
+        if (group.segmentCount < 3 || group.segmentCount > MAX_FRAME_RATE_AD_BLOCK_SIZE) return null;
+        BigDecimal duration = null;
+        for (String raw : group.lines) {
+            if (getExtInfValueStart(raw) < 0) continue;
+            BigDecimal current = parseExtInfDuration(raw);
+            if (current.compareTo(BigDecimal.ZERO) <= 0) return null;
+            if (duration == null) duration = current;
+            else if (duration.compareTo(current) != 0) return null;
+        }
+        return duration == null ? null : duration.stripTrailingZeros().toPlainString();
     }
 
     private static int findDominantFrameRate(List<Group> groups) {

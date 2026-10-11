@@ -34,6 +34,37 @@ public class M3u8PurifyTest {
     }
 
     @Test
+    public void removesRepeatedShortBlocksWithOutlierUniformDurationCadence() {
+        String playlist = uniformCadencePlaylist(new String[]{
+                "4.166667", "4.166667", "4.000000", "4.166667",
+                "4.166667", "4.000000", "4.166667", "4.166667", "4.166667"
+        });
+
+        M3u8.PurifyResult result = M3u8.purifyWithResult(
+                "https://cdn.example/vod/index.m3u8", playlist);
+
+        assertEquals(10, result.removedSegments());
+        assertFalse(result.content().contains("seg000a.ts"));
+        assertFalse(result.content().contains("seg0019.ts"));
+        assertTrue(result.content().contains("seg0000.ts"));
+        assertTrue(result.content().contains("seg0023.ts"));
+    }
+
+    @Test
+    public void keepsOneOffUniformDurationBlock() {
+        String playlist = uniformCadencePlaylist(new String[]{
+                "4.166667", "4.166667", "4.000000", "4.166667",
+                "4.166667", "4.166667", "4.166667"
+        });
+
+        M3u8.PurifyResult result = M3u8.purifyWithResult(
+                "https://cdn.example/vod/index.m3u8", playlist);
+
+        assertEquals(0, result.removedSegments());
+        assertTrue(result.content().contains("seg000a.ts"));
+    }
+
+    @Test
     public void concurrentPurificationKeepsEachResultCountPairedWithItsPlaylist() throws Exception {
         String adPlaylist = "#EXTM3U\n#EXT-X-CUE-OUT:6\n"
                 + "#EXTINF:6.000,\nhttps://cdn.example/vod/ad.ts\n"
@@ -69,5 +100,20 @@ public class M3u8PurifyTest {
             Thread.currentThread().interrupt();
             throw new AssertionError(error);
         }
+    }
+
+    private static String uniformCadencePlaylist(String[] groupDurations) {
+        StringBuilder playlist = new StringBuilder("#EXTM3U\n#EXT-X-PLAYLIST-TYPE:VOD\n");
+        int segment = 0;
+        for (String duration : groupDurations) {
+            playlist.append("#EXT-X-DISCONTINUITY\n");
+            for (int i = 0; i < 5; i++) {
+                playlist.append("#EXTINF:").append(duration).append(",\n")
+                        .append("https://cdn.example/vod/seg")
+                        .append(String.format(java.util.Locale.ROOT, "%04x", segment++))
+                        .append(".ts\n");
+            }
+        }
+        return playlist.append("#EXT-X-ENDLIST\n").toString();
     }
 }
