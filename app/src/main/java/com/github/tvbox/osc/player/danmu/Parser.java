@@ -40,15 +40,19 @@ import master.flame.danmaku.danmaku.model.android.DanmakuFactory;
 import master.flame.danmaku.danmaku.model.android.Danmakus;
 import master.flame.danmaku.danmaku.parser.BaseDanmakuParser;
 import master.flame.danmaku.danmaku.util.DanmakuUtils;
+import okhttp3.Call;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 
 public class Parser extends BaseDanmakuParser {
     public interface CancelChecker {
         boolean isCancelled();
+
+        default void onCall(Call call) {
+        }
     }
 
-    private static final long HTTP_TIMEOUT_MS = 20 * 1000L;
+    private static final long HTTP_TIMEOUT_MS = 12 * 1000L;
     private static final X509TrustManager TRUST_ALL_CERT = new X509TrustManager() {
         @Override
         public void checkClientTrusted(java.security.cert.X509Certificate[] chain, String authType) throws CertificateException {
@@ -165,6 +169,7 @@ public class Parser extends BaseDanmakuParser {
         builder.readTimeout(HTTP_TIMEOUT_MS, TimeUnit.MILLISECONDS);
         builder.writeTimeout(HTTP_TIMEOUT_MS, TimeUnit.MILLISECONDS);
         builder.connectTimeout(HTTP_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        builder.callTimeout(HTTP_TIMEOUT_MS, TimeUnit.MILLISECONDS);
         builder.retryOnConnectionFailure(true);
         if (unsafeSsl) {
             SSLSocketFactory sslSocketFactory = new SSLSocketFactoryCompat(TRUST_ALL_CERT);
@@ -181,12 +186,18 @@ public class Parser extends BaseDanmakuParser {
 
     private okhttp3.Response executeHttp(String source) throws IOException {
         Request request = new Request.Builder().url(source).get().build();
-        return HTTP_CLIENT.newCall(request).execute();
+        Call call = HTTP_CLIENT.newCall(request);
+        if (cancelChecker != null) cancelChecker.onCall(call);
+        if (isCancelled()) call.cancel();
+        return call.execute();
     }
 
     private okhttp3.Response executeUnsafeHttp(String source) throws IOException {
         Request request = new Request.Builder().url(source).get().build();
-        return UNSAFE_HTTP_CLIENT.newCall(request).execute();
+        Call call = UNSAFE_HTTP_CLIENT.newCall(request);
+        if (cancelChecker != null) cancelChecker.onCall(call);
+        if (isCancelled()) call.cancel();
+        return call.execute();
     }
 
     private boolean isSslError(Throwable th) {

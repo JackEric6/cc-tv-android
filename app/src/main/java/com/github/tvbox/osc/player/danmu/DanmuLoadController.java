@@ -13,11 +13,13 @@ import java.util.HashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import master.flame.danmaku.danmaku.model.BaseDanmaku;
 import master.flame.danmaku.danmaku.model.IDisplayer;
 import master.flame.danmaku.danmaku.model.android.DanmakuContext;
 import master.flame.danmaku.ui.widget.DanmakuView;
+import okhttp3.Call;
 import xyz.doikki.videoplayer.player.VideoView;
 
 public class DanmuLoadController {
@@ -30,6 +32,7 @@ public class DanmuLoadController {
     private final DanmakuView danmuView;
     private final DanmakuContext danmakuContext;
     private final AtomicInteger loadSeq = new AtomicInteger();
+    private final AtomicReference<ActiveDanmuCall> activeNetworkCall = new AtomicReference<>();
     private ExecutorService executor;
     private String danmuText = "";
     private String danmuTitle = "";
@@ -112,7 +115,7 @@ public class DanmuLoadController {
         danmuText = TextUtils.isEmpty(danmu) ? "" : danmu.trim();
         danmuTitle = TextUtils.isEmpty(title) ? "" : title;
         danmuEpisode = TextUtils.isEmpty(episode) ? "" : episode;
-        loadSeq.incrementAndGet();
+        invalidateCurrentLoad();
         preparingSeq = -1;
         pendingPrepare = false;
         releaseView();
@@ -152,7 +155,7 @@ public class DanmuLoadController {
         danmuEpisode = "";
         pendingPrepare = false;
         loadCallback = null;
-        loadSeq.incrementAndGet();
+        invalidateCurrentLoad();
         preparingSeq = -1;
         startedSeq = -1;
         settingsHidden = false;
@@ -162,7 +165,7 @@ public class DanmuLoadController {
 
     public void close() {
         DanmakuApi.cancel();
-        loadSeq.incrementAndGet();
+        invalidateCurrentLoad();
         startedSeq = -1;
         pendingPrepare = false;
         releaseView();
@@ -181,7 +184,7 @@ public class DanmuLoadController {
 
     public void reloadForPlayback() {
         temporarilyClosed = false;
-        loadSeq.incrementAndGet();
+        invalidateCurrentLoad();
         preparingSeq = -1;
         startedSeq = -1;
         releaseView();
@@ -199,7 +202,7 @@ public class DanmuLoadController {
     private void prepare(String danmu) {
         if (TextUtils.isEmpty(danmu)) return;
         pendingPrepare = false;
-        int seq = loadSeq.incrementAndGet();
+        int seq = invalidateCurrentLoad();
         preparingSeq = seq;
         startedSeq = -1;
         LOG.i("echo-danmu load title: " + safeLog(danmuTitle) + ", episode: " + safeLog(danmuEpisode) + ", source: " + getSourceSummary(danmu));
@@ -211,13 +214,34 @@ public class DanmuLoadController {
                 final Parser parser;
                 final int danmuCount;
                 try {
-                    parser = new Parser(danmu, () -> seq != loadSeq.get());
+                    parser = new Parser(danmu, new Parser.CancelChecker() {
+                        @Override
+                        public boolean isCancelled() {
+                            return seq != loadSeq.get();
+                        }
+
+                        @Override
+                        public void onCall(Call call) {
+                            if (seq != loadSeq.get()) {
+                                call.cancel();
+                                return;
+                            }
+                            ActiveDanmuCall active = new ActiveDanmuCall(seq, call);
+                            activeNetworkCall.set(active);
+                            if (seq != loadSeq.get() && activeNetworkCall.compareAndSet(active, null)) {
+                                call.cancel();
+                            }
+                        }
+                    });
                     if (seq != loadSeq.get()) return;
                     danmuCount = parser.getDanmuCount();
                 } catch (Throwable th) {
                     LOG.e("echo-danmu parse error: " + th.getMessage());
                     dispatchLoadFailed(seq);
                     return;
+                } finally {
+                    ActiveDanmuCall active = activeNetworkCall.get();
+                    if (active != null && active.seq == seq) activeNetworkCall.compareAndSet(active, null);
                 }
                 LOG.i("echo-danmu parsed count: " + danmuCount);
                 if (danmuView == null) {
@@ -368,6 +392,23 @@ public class DanmuLoadController {
 
     private boolean isDisplayEnabled() {
         return DanmuHelper.isOpen() && !temporarilyClosed && !settingsHidden;
+    }
+
+    private int invalidateCurrentLoad() {
+        int seq = loadSeq.incrementAndGet();
+        ActiveDanmuCall active = activeNetworkCall.getAndSet(null);
+        if (active != null) active.call.cancel();
+        return seq;
+    }
+
+    private static final class ActiveDanmuCall {
+        final int seq;
+        final Call call;
+
+        ActiveDanmuCall(int seq, Call call) {
+            this.seq = seq;
+            this.call = call;
+        }
     }
 
     private String getSourceSummary(String danmu) {

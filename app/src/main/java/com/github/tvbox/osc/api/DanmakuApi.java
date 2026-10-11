@@ -27,6 +27,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import okhttp3.Call;
 import okhttp3.Callback;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
 import okhttp3.Response;
 
 public class DanmakuApi {
@@ -34,8 +36,10 @@ public class DanmakuApi {
 //    private static final String BUILTIN_API = "https://saas-oa.shyeguang.cn";
     private static final String BUILTIN_API = "https://logvardanmu.konfan.cn/87654321";
     private static final String USE_DEFAULT_KEY = "danmu_api_use_default";
+    private static final long SEARCH_TIMEOUT = TimeUnit.SECONDS.toMillis(8);
     private static final long BUILTIN_TIMEOUT = TimeUnit.SECONDS.toMillis(20);
     private static final int BUILTIN_MAX_RETRY = 1;
+    private static final int SEARCH_LIST_MAX_RETRY = 1;
     private static final int EPISODE_QUERY_NUMBER = 0;
     private static final int EPISODE_QUERY_EMPTY = 1;
     private static final Handler handler = new Handler(Looper.getMainLooper());
@@ -100,8 +104,9 @@ public class DanmakuApi {
 
                 @Override
                 public void onResponse(@NonNull Call call, @NonNull Response response) {
-                    if (!isCurrentSearch(seq)) return;
                     try {
+                        if (!isCurrentSearch(seq)) return;
+                        if (!response.isSuccessful()) throw new IOException("HTTP " + response.code());
                         String body = response.body() == null ? "" : response.body().string();
                         String url = parseUrl(body);
                         if (!TextUtils.isEmpty(url) && isCurrentSearch(seq)) {
@@ -117,6 +122,8 @@ public class DanmakuApi {
                     } catch (Throwable th) {
                         LOG.e("echo-danmaku search parse error: " + th.getMessage());
                         notifyNotFound(callback, seq);
+                    } finally {
+                        response.close();
                     }
                 }
             });
@@ -136,7 +143,7 @@ public class DanmakuApi {
             return;
         }
         if (!hasPlaceholder(apiUrl) && !isDanmakuSearchApi(apiUrl)) {
-            searchBuiltinList(apiUrl, name, callback, seq);
+            searchBuiltinList(apiUrl, name, callback, seq, 0);
             return;
         }
         try {
@@ -204,13 +211,20 @@ public class DanmakuApi {
         OkHttp.cancel(TAG);
     }
 
-    private static void searchBuiltinList(String apiUrl, String name, SearchListCallback callback, int seq) {
+    private static void searchBuiltinList(String apiUrl, String name, SearchListCallback callback, int seq, int retry) {
         String baseUrl = normalizeBaseUrl(apiUrl);
         String searchUrl = baseUrl + "/api/v2/search/episodes?anime=" + encode(Trans.t2s(name == null ? "" : name));
-        OkHttp.newCall(OkHttp.client(BUILTIN_TIMEOUT), searchUrl, TAG).enqueue(new Callback() {
+        OkHttp.newCall(searchClient(), searchUrl, TAG).enqueue(new Callback() {
             @Override
             public void onFailure(@NonNull Call call, @NonNull IOException e) {
-                notifySearchListError(callback, seq, getErrorMessage(e));
+                if (!isCurrentSearch(seq)) return;
+                if (retry < SEARCH_LIST_MAX_RETRY) {
+                    handler.postDelayed(() -> {
+                        if (isCurrentSearch(seq)) searchBuiltinList(apiUrl, name, callback, seq, retry + 1);
+                    }, 250L);
+                } else {
+                    notifySearchListError(callback, seq, getErrorMessage(e));
+                }
             }
 
             @Override
@@ -240,18 +254,15 @@ public class DanmakuApi {
         final String searchUrl = baseUrl + "/api/v2/search/episodes?anime=" + encode(simpleName)
                 + (TextUtils.isEmpty(episodeQuery) ? "" : "&episode=" + encode(episodeQuery));
 //        LOG.i("echo-danmaku builtin search episodes: " + searchUrl + ", retry=" + retry + ", mode=" + queryMode);
-        OkHttp.newCall(OkHttp.client(BUILTIN_TIMEOUT), searchUrl, TAG).enqueue(new Callback() {
+        OkHttp.newCall(searchClient(), searchUrl, TAG).enqueue(new Callback() {
             @Override
             public void onFailure(@NonNull Call call, @NonNull IOException e) {
                 if (!isCurrentSearch(seq)) return;
                 if (retry < BUILTIN_MAX_RETRY) {
                     LOG.e("echo-danmaku builtin search error: " + e.getMessage() + ", retry later");
-                    handler.postDelayed(new Runnable() {
-                        @Override
-                        public void run() {
-                            if (isCurrentSearch(seq)) searchBuiltin(apiUrl, name, episode, callback, retry + 1, seq, queryMode);
-                        }
-                    }, 600L);
+                    handler.postDelayed(() -> {
+                        if (isCurrentSearch(seq)) searchBuiltin(apiUrl, name, episode, callback, retry + 1, seq, queryMode);
+                    }, 300L);
                 } else {
                     LOG.e("echo-danmaku builtin search error: " + e.getMessage());
                     searchBuiltinAnime(baseUrl, simpleName, simpleEpisode, callback, seq, true);
@@ -260,8 +271,9 @@ public class DanmakuApi {
 
             @Override
             public void onResponse(@NonNull Call call, @NonNull Response response) {
-                if (!isCurrentSearch(seq)) return;
                 try {
+                    if (!isCurrentSearch(seq)) return;
+                    if (!response.isSuccessful()) throw new IOException("HTTP " + response.code());
                     String body = response.body() == null ? "" : response.body().string();
                     EpisodeMatch episodeMatch = findEpisodeFromSearchEpisodes(body, simpleEpisode);
                     if (episodeMatch != null && !TextUtils.isEmpty(episodeMatch.id)) {
@@ -273,19 +285,21 @@ public class DanmakuApi {
                         notifyNotFound(callback, seq);
                         return;
                     }
-                    if (tryNextEpisodeQuery(apiUrl, name, episode, callback, seq, queryMode)) return;
+                    if (tryNextEpisodeQuery(apiUrl, name, episode, callback, retry, seq, queryMode)) return;
                     LOG.i("echo-danmaku builtin episode not matched, title: " + safeLog(simpleName) + ", episode: " + safeLog(simpleEpisode));
                     searchBuiltinAnime(baseUrl, simpleName, simpleEpisode, callback, seq, true);
                 } catch (Throwable th) {
                     LOG.e("echo-danmaku builtin episode parse error: " + th.getMessage());
-                    if (tryNextEpisodeQuery(apiUrl, name, episode, callback, seq, queryMode)) return;
+                    if (tryNextEpisodeQuery(apiUrl, name, episode, callback, retry, seq, queryMode)) return;
                     searchBuiltinAnime(baseUrl, simpleName, simpleEpisode, callback, seq, true);
+                } finally {
+                    response.close();
                 }
             }
         });
     }
 
-    private static boolean tryNextEpisodeQuery(String apiUrl, String name, String episode, SearchCallback callback, int seq, int queryMode) {
+    private static boolean tryNextEpisodeQuery(String apiUrl, String name, String episode, SearchCallback callback, int retry, int seq, int queryMode) {
         int nextMode = getNextEpisodeQueryMode(Trans.t2s(episode == null ? "" : episode), queryMode);
         if (nextMode < 0) return false;
 //        LOG.i("echo-danmaku builtin retry episodes query mode: " + queryMode + " -> " + nextMode);
@@ -296,7 +310,7 @@ public class DanmakuApi {
     private static void searchBuiltinAnime(String baseUrl, String name, String episode, SearchCallback callback, int seq, boolean notifyOnEmpty) {
         final String searchUrl = baseUrl + "/api/v2/search/anime?keyword=" + encode(name);
         LOG.i("echo-danmaku builtin search anime: " + searchUrl);
-        OkHttp.newCall(OkHttp.client(BUILTIN_TIMEOUT), searchUrl, TAG).enqueue(new Callback() {
+        OkHttp.newCall(searchClient(), searchUrl, TAG).enqueue(new Callback() {
             @Override
             public void onFailure(@NonNull Call call, @NonNull IOException e) {
                 if (!isCurrentSearch(seq)) return;
@@ -306,8 +320,9 @@ public class DanmakuApi {
 
             @Override
             public void onResponse(@NonNull Call call, @NonNull Response response) {
-                if (!isCurrentSearch(seq)) return;
                 try {
+                    if (!isCurrentSearch(seq)) return;
+                    if (!response.isSuccessful()) throw new IOException("HTTP " + response.code());
                     String body = response.body() == null ? "" : response.body().string();
                     String animeId = findAnimeId(body);
                     if (TextUtils.isEmpty(animeId)) {
@@ -318,6 +333,8 @@ public class DanmakuApi {
                 } catch (Throwable th) {
                     LOG.e("echo-danmaku builtin anime parse error: " + th.getMessage());
                     if (notifyOnEmpty) notifyNotFound(callback, seq);
+                } finally {
+                    response.close();
                 }
             }
         });
@@ -326,7 +343,7 @@ public class DanmakuApi {
     private static void loadBuiltinBangumi(String baseUrl, String animeId, String episode, SearchCallback callback, int seq) {
         final String bangumiUrl = baseUrl + "/api/v2/bangumi/" + animeId;
 //        LOG.i("echo-danmaku builtin bangumi: " + bangumiUrl);
-        OkHttp.newCall(OkHttp.client(BUILTIN_TIMEOUT), bangumiUrl, TAG).enqueue(new Callback() {
+        OkHttp.newCall(searchClient(), bangumiUrl, TAG).enqueue(new Callback() {
             @Override
             public void onFailure(@NonNull Call call, @NonNull IOException e) {
                 if (!isCurrentSearch(seq)) return;
@@ -336,8 +353,9 @@ public class DanmakuApi {
 
             @Override
             public void onResponse(@NonNull Call call, @NonNull Response response) {
-                if (!isCurrentSearch(seq)) return;
                 try {
+                    if (!isCurrentSearch(seq)) return;
+                    if (!response.isSuccessful()) throw new IOException("HTTP " + response.code());
                     String body = response.body() == null ? "" : response.body().string();
                     EpisodeMatch episodeMatch = findEpisode(body, episode);
                     if (episodeMatch != null && !TextUtils.isEmpty(episodeMatch.id)) {
@@ -349,6 +367,8 @@ public class DanmakuApi {
                 } catch (Throwable th) {
                     LOG.e("echo-danmaku builtin bangumi parse error: " + th.getMessage());
                     notifyNotFound(callback, seq);
+                } finally {
+                    response.close();
                 }
             }
         });
@@ -372,8 +392,9 @@ public class DanmakuApi {
 
             @Override
             public void onResponse(@NonNull Call call, @NonNull Response response) {
-                if (!isCurrentSearch(seq)) return;
                 try {
+                    if (!isCurrentSearch(seq)) return;
+                    if (!response.isSuccessful()) throw new IOException("HTTP " + response.code());
                     String body = response.body() == null ? "" : response.body().string();
                     final String xml = commentJsonToXml(body);
                     if (TextUtils.isEmpty(xml) || !isCurrentSearch(seq)) {
@@ -389,6 +410,8 @@ public class DanmakuApi {
                 } catch (Throwable th) {
                     LOG.e("echo-danmaku builtin comment parse error: " + th.getMessage());
                     notifyNotFound(callback, seq);
+                } finally {
+                    response.close();
                 }
             }
         });
@@ -409,15 +432,25 @@ public class DanmakuApi {
     }
 
     private static Call newCall(String apiUrl, String name, String episode) {
+        return newCall(searchClient(), apiUrl, name, episode);
+    }
+
+    private static OkHttpClient searchClient() {
+        return OkHttp.client(SEARCH_TIMEOUT).newBuilder()
+                .callTimeout(SEARCH_TIMEOUT, TimeUnit.MILLISECONDS)
+                .build();
+    }
+
+    private static Call newCall(OkHttpClient client, String apiUrl, String name, String episode) {
         name = Trans.t2s(name == null ? "" : name);
         episode = Trans.t2s(episode == null ? "" : episode);
         if (hasPlaceholder(apiUrl)) {
-            return OkHttp.newCall(apiUrl.replace("{name}", name).replace("{episode}", episode), TAG);
+            return OkHttp.newCall(client, apiUrl.replace("{name}", name).replace("{episode}", episode), TAG);
         }
         ArrayMap<String, String> params = new ArrayMap<>();
         params.put("name", name);
         params.put("episode", episode);
-        return OkHttp.newCall(apiUrl, OkHttp.toBody(params), TAG);
+        return client.newCall(new Request.Builder().url(apiUrl).post(OkHttp.toBody(params)).tag(TAG).build());
     }
 
     private static String getApiUrl() {
