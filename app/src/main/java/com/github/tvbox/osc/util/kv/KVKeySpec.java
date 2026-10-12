@@ -138,6 +138,8 @@ public final class KVKeySpec implements KVDecoder.TypeRegistry {
         });
         register(HawkConfig.API_HISTORY, new TypeToken<ArrayList<String>>() {
         });
+        register(HawkConfig.FEEDBACK_RECORDS, new TypeToken<ArrayList<String>>() {
+        });
         register(HawkConfig.LIVE_API_HISTORY, new TypeToken<ArrayList<String>>() {
         });
         register(HawkConfig.API_LINE_LIST, new TypeToken<ArrayList<String>>() {

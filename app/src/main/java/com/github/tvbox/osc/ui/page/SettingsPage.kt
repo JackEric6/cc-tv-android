@@ -60,6 +60,7 @@ import com.github.tvbox.osc.ui.components.SettingsGroup
 import com.github.tvbox.osc.ui.components.SettingsOptionMenuRow
 import com.github.tvbox.osc.ui.components.SettingsRow
 import com.github.tvbox.osc.ui.activity.DownloadActivity
+import com.github.tvbox.osc.ui.activity.FeedbackSuggestionActivity
 import com.github.tvbox.osc.ui.activity.PlaySettingsActivity
 import com.github.tvbox.osc.ui.activity.PreferenceSettingsActivity
 import com.github.tvbox.osc.ui.activity.PreloadSettingsActivity
@@ -285,6 +286,17 @@ fun SettingsPage(
                         subtitle = "查看缓存任务和已完成视频",
                         iconRes = R.drawable.ic_tab_download,
                         onClick = { DownloadActivity.start(context) },
+                    )
+                }
+            }
+
+            SettingsGroup(title = null) {
+                SettingsCard(SettingsCardPosition.FIRST) {
+                    SettingsRow(
+                        title = "反馈建议",
+                        subtitle = "提交问题或使用反馈码切换首页源",
+                        iconRes = R.drawable.ic_settings_feedback,
+                        onClick = { FeedbackSuggestionActivity.start(context) },
                     )
                 }
             }

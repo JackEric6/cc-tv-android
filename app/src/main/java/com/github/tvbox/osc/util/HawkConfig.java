@@ -47,6 +47,7 @@ public class HawkConfig {
     public static final String BOOT_DISABLED_SOURCES = "boot_disabled_sources";
     public static final String LIVE_API_HISTORY = "live_api_history";
     public static final String HOME_API = "home_api";
+    public static final String FEEDBACK_RECORDS = "feedback_records";
     public static final String DEFAULT_PARSE = "parse_default";
     public static final String IJK_CODEC = "ijk_codec";
     // EXO 解码方式(2026-09-17):与 IJK 的 IJK_CODEC 独立开键 —— IJK 走内核自带 options(mediacodec=0/1),

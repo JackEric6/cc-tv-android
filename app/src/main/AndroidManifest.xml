@@ -101,6 +101,9 @@
         <activity
             android:name=".ui.activity.PreferenceSettingsActivity" />
         <activity
+            android:name=".ui.activity.FeedbackSuggestionActivity"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
             android:name=".ui.activity.PreloadSettingsActivity" />
         <activity
             android:name=".ui.activity.DownloadActivity" />
