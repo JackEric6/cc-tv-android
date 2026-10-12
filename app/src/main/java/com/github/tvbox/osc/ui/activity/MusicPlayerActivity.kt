@@ -32,7 +32,7 @@ import com.github.tvbox.osc.ui.music.MusicPlayMode
 import com.github.tvbox.osc.ui.music.MusicPlayerScreen
 import com.github.tvbox.osc.ui.music.MusicPlayerState
 import com.github.tvbox.osc.ui.player.PlayerTipBridge
-import com.github.tvbox.osc.ui.theme.AVBoxTheme
+import com.github.tvbox.osc.ui.theme.CcTvTheme
 import com.github.tvbox.osc.ui.theme.enableTransparentEdgeToEdge
 import com.github.tvbox.osc.util.LOG
 import com.github.tvbox.osc.util.MD5
@@ -110,7 +110,7 @@ class MusicPlayerActivity : BaseActivity(), PlaybackPage {
         engine.attach(this)
         player.addOnStateChangeListener(stateListener)
         findViewById<ComposeView>(R.id.compose_view).setContent {
-            AVBoxTheme {
+            CcTvTheme {
                 MusicPlayerScreen(
                     state = ui,
                     onBack = { finish() },

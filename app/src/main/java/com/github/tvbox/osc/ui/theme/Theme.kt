@@ -42,7 +42,7 @@ internal fun ComponentActivity.enableTransparentEdgeToEdge() {
 }
 
 @Composable
-fun AVBoxTheme(
+fun CcTvTheme(
     config: ThemeConfig = AppThemeState.config,
     manageStatusBarIcons: Boolean = true,
     content: @Composable () -> Unit,
@@ -73,7 +73,7 @@ fun AVBoxTheme(
     CompositionLocalProvider(LocalRippleConfiguration provides rememberRippleConfiguration()) {
         MaterialTheme(
             colorScheme = colorScheme,
-            typography = AVBoxTypography,
+            typography = CcTvTypography,
             content = content,
         )
     }
@@ -121,24 +121,24 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 
 @Preview(name = "浅色", showBackground = true)
 @Composable
-private fun AVBoxThemeLightPreview() {
-    AVBoxTheme(
+private fun CcTvThemeLightPreview() {
+    CcTvTheme(
         config = ThemeConfig(ThemeSource.CUSTOM, ThemeMode.LIGHT, DefaultSeedArgb, PaletteStyle.TonalSpot),
     ) {
         Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
-            Text("AVBox")
+            Text("cc-tv")
         }
     }
 }
 
 @Preview(name = "深色", showBackground = true)
 @Composable
-private fun AVBoxThemeDarkPreview() {
-    AVBoxTheme(
+private fun CcTvThemeDarkPreview() {
+    CcTvTheme(
         config = ThemeConfig(ThemeSource.CUSTOM, ThemeMode.DARK, DefaultSeedArgb, PaletteStyle.TonalSpot),
     ) {
         Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
-            Text("AVBox")
+            Text("cc-tv")
         }
     }
 }

@@ -78,7 +78,7 @@ fun SearchSettingsSheet(onDismiss: () -> Unit) {
         SearchViewModel.loadCheckedSources()
     }
 
-    AVBoxBottomSheet(
+    CcTvBottomSheet(
         onDismissRequest = onDismiss,
         title = "搜索设置",
         containerColor = MaterialTheme.colorScheme.surfaceContainer,

@@ -5,7 +5,7 @@ import android.net.Uri;
 import androidx.annotation.NonNull;
 
 /**
- * 播放指令面(播放服务化 Spec §2.1–2.3,`skill/avbox-playback-service-spec.md`)。
+ * 播放指令接口。
  *
  * <p>页面只通过这些方法驱动播放;实现方在 P0/P1 是页面内的 {@code PlayContainer},
  * P2 起改为前台服务持有的播放宿主 `MyVideoView` + `PlaybackController`。页面侧(Compose 覆盖层、

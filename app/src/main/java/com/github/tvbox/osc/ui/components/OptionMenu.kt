@@ -31,7 +31,7 @@ import androidx.compose.ui.unit.dp
 private val OptionMenuMinWidth = 156.dp
 
 @Composable
-fun AVBoxOptionMenu(
+fun CcTvOptionMenu(
     expanded: Boolean,
     options: List<String>,
     selectedIndex: Int,
@@ -125,7 +125,7 @@ fun SettingsOptionMenuRow(
             onClick = if (enabled) ({ expanded = true }) else null,
         )
         Box(modifier = Modifier.align(Alignment.BottomEnd)) {
-            AVBoxOptionMenu(
+            CcTvOptionMenu(
                 expanded = expanded,
                 options = options,
                 selectedIndex = selectedIndex,

@@ -70,7 +70,7 @@ class PublicPosterProvider(
             val request = Request.Builder()
                 .url(url)
                 .header("Accept", "application/json")
-                .header("User-Agent", "AVBox/PosterFallback")
+                .header("User-Agent", "cc-tv/PosterFallback")
                 .get()
                 .build()
             client.newCall(request).execute().use { response ->

@@ -31,7 +31,7 @@ import com.github.tvbox.osc.player.MyVideoView
 import com.github.tvbox.osc.player.PlaybackService
 import com.github.tvbox.osc.player.controller.ComposeLiveController
 import com.github.tvbox.osc.ui.components.LocalSheetDismiss
-import com.github.tvbox.osc.ui.theme.AVBoxTheme
+import com.github.tvbox.osc.ui.theme.CcTvTheme
 import com.github.tvbox.osc.ui.theme.AppThemeState
 import com.github.tvbox.osc.util.DefaultConfig
 import com.github.tvbox.osc.util.HawkConfig
@@ -221,7 +221,7 @@ class LivePlayActivity : BaseActivity() {
         epgController.setDayKey(FORMAT_DATE1.format(nowday))
         initVideoView()
         findViewById<ComposeView>(R.id.compose_view).setContent {
-            AVBoxTheme(manageStatusBarIcons = false) {
+            CcTvTheme(manageStatusBarIcons = false) {
                 LiveScreen(activity = this)
             }
         }

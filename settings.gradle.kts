@@ -33,7 +33,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "AVBox"
+rootProject.name = "cc-tv"
 include(":app")
 include(":player")
 include(":quickjs")

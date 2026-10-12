@@ -24,7 +24,7 @@ import java.util.Map;
 import xyz.doikki.videoplayer.exo.ExoMediaSourceHelper;
 
 /**
- * 引擎层预载持有者（预载方案第一期,见 skill/avbox-preload-next-episode-spec.md §5.4）。
+ * 引擎层预载持有者。
  *
  * <p>持有全局唯一的 {@link DefaultPreloadManager}（media3 1.9.0,与播放进程同生命周期）,
  * 把「下一集」的数据预载进内存。与播放侧的 header 语义统一:
@@ -299,7 +299,7 @@ public final class PreloadManagerHolder {
      */
     public static synchronized Looper preloadLooper() {
         if (sPreloadThread == null || !sPreloadThread.isAlive()) {
-            sPreloadThread = new HandlerThread("avbox-preload", android.os.Process.THREAD_PRIORITY_AUDIO);
+            sPreloadThread = new HandlerThread("cc-tv-preload", android.os.Process.THREAD_PRIORITY_AUDIO);
             sPreloadThread.start();
         }
         return sPreloadThread.getLooper();

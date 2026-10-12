@@ -139,7 +139,7 @@ public class SourceViewModel extends ViewModel {
             private final AtomicInteger seq = new AtomicInteger(1);
             @Override
             public Thread newThread(Runnable r) {
-                return new Thread(r, "avbox-" + prefix + "-" + seq.getAndIncrement());
+                return new Thread(r, "cc-tv-" + prefix + "-" + seq.getAndIncrement());
             }
         };
     }
@@ -1086,7 +1086,7 @@ public class SourceViewModel extends ViewModel {
         } else if (type == 0 || type == 1) {
             // 搜索源地址可能本身已经带有 source 等 query 参数(西瓜本地适配器就是这种形态)。
             // 先用 HttpUrl 组装完整 URL，避免 OkGo 在 GET 参数合并时覆盖/重复编码中文关键词。
-            // 按原始 AVBox 约定发送:XML 源保留原始查询,JSON CMS 搜索使用 ac=detail。
+            // 按上游源格式约定发送:XML 源保留原始查询,JSON CMS 搜索使用 ac=detail。
             String searchUrl = buildSearchUrl(sourceBean.getApi(), wd, type == 1 ? "detail" : "");
             LOG.i("echo-search-request source=" + sourceBean.getKey()
                     + " url=" + searchUrl + " wd=" + wd);

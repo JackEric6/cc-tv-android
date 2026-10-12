@@ -40,7 +40,7 @@ import okhttp3.HttpUrl;
 final class OfflineMediaTransformer {
     private static final ExecutorService EXECUTOR = Executors.newFixedThreadPool(
             OfflineVideoCache.MAX_ACTIVE_DOWNLOADS, runnable -> {
-        Thread thread = new Thread(runnable, "avbox-offline-media");
+        Thread thread = new Thread(runnable, "cc-tv-offline-media");
         thread.setDaemon(true);
         return thread;
     });
@@ -130,7 +130,7 @@ final class OfflineMediaTransformer {
     private static void convert(Context context, String key, File target, String remoteUrl,
                                 Map<String, String> headers,
                                 OfflineVideoCache.DownloadHandle handle) {
-        HandlerThread transformerThread = new HandlerThread("avbox-media-transformer");
+        HandlerThread transformerThread = new HandlerThread("cc-tv-media-transformer");
         File outputPart = new File(target.getParentFile(), target.getName() + ".part");
         if (!OfflineVideoCache.acquireDownloadSlot(handle)) {
             ACTIVE.remove(key, handle);

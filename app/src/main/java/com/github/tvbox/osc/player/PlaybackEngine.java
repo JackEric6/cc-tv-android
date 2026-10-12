@@ -31,7 +31,7 @@ import xyz.doikki.videoplayer.player.ProgressManager;
 import xyz.doikki.videoplayer.player.VideoView;
 
 /**
- * 播放引擎(P2 播放服务化,`skill/avbox-playback-service-spec.md` §2.1/§2.3/§3-P2)。
+ * 播放引擎与播放服务协调层。
  *
  * <p>**所有权模型**(照搬 fongmi,但落地为"进程级引擎 + 宿主服务"):播放器实例
  * ({@link MyVideoView} + {@link PlaybackController})由本引擎持有、由 {@link PlaybackService} 托管,

@@ -208,7 +208,7 @@ final class GuaziApi {
     }
 
     private String newDeviceKey() {
-        return "avbox-" + UUID.randomUUID().toString().replace("-", "");
+        return "cc-tv-" + UUID.randomUUID().toString().replace("-", "");
     }
 
     private static String string(JsonObject object, String key) {

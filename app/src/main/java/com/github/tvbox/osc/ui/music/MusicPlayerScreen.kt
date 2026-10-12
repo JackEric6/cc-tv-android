@@ -87,7 +87,7 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.github.tvbox.osc.R
 import com.github.tvbox.osc.player.ui.CastSheet
-import com.github.tvbox.osc.ui.components.AVBoxBottomSheet
+import com.github.tvbox.osc.ui.components.CcTvBottomSheet
 import com.github.tvbox.osc.ui.components.LocalTopBarGlassBackdrop
 import com.github.tvbox.osc.ui.components.ScallopShape
 import com.github.tvbox.osc.ui.components.TopBarActionBox
@@ -216,7 +216,7 @@ fun MusicPlayerScreen(
         }
 
         if (queueVisible) {
-            AVBoxBottomSheet(
+            CcTvBottomSheet(
                 onDismissRequest = { queueVisible = false },
                 title = "播放队列",
                 containerColor = MaterialTheme.colorScheme.surfaceContainer,

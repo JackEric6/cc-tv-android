@@ -51,7 +51,7 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AVBoxBottomSheet(
+fun CcTvBottomSheet(
     onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier,
     title: String? = null,
@@ -86,7 +86,7 @@ fun AVBoxBottomSheet(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AVBoxOptionSheet(
+fun CcTvOptionSheet(
     onDismissRequest: () -> Unit,
     title: String?,
     options: List<String>,
@@ -94,7 +94,7 @@ fun AVBoxOptionSheet(
     modifier: Modifier = Modifier,
     onSelect: (String) -> Unit,
 ) {
-    AVBoxBottomSheet(
+    CcTvBottomSheet(
         onDismissRequest = onDismissRequest,
         title = title,
         containerColor = MaterialTheme.colorScheme.surfaceContainer,

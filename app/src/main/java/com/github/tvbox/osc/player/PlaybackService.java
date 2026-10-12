@@ -36,7 +36,7 @@ import com.github.tvbox.osc.util.ScreenUtils;
 import java.lang.ref.WeakReference;
 
 /**
- * 播放宿主服务(P2 播放服务化 + P3 通知/媒体会话并入,`skill/avbox-playback-service-spec.md` §2.1/§3)。
+ * 播放宿主服务，负责播放与系统媒体会话生命周期。
  *
  * <p>**职责**:
  * <ol>

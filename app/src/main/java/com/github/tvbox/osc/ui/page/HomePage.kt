@@ -85,7 +85,7 @@ import com.github.tvbox.osc.ui.activity.ConfigManageActivity
 import com.github.tvbox.osc.ui.activity.PartitionListActivity
 import com.github.tvbox.osc.ui.activity.SearchActivity
 import com.github.tvbox.osc.ui.activity.LivePlayActivity
-import com.github.tvbox.osc.ui.components.AVBoxBottomSheet
+import com.github.tvbox.osc.ui.components.CcTvBottomSheet
 import com.github.tvbox.osc.ui.components.HeroCarousel
 import com.github.tvbox.osc.ui.components.LoadState
 import com.github.tvbox.osc.ui.components.AppTopBarScaffold

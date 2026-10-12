@@ -59,7 +59,7 @@ import androidx.compose.ui.unit.dp
 import com.github.tvbox.osc.R
 import com.github.tvbox.osc.api.ApiConfig
 import com.github.tvbox.osc.ui.activity.ConfigManageActivity
-import com.github.tvbox.osc.ui.components.AVBoxBottomSheet
+import com.github.tvbox.osc.ui.components.CcTvBottomSheet
 import com.github.tvbox.osc.ui.components.CapsuleSegmentedButton
 import com.github.tvbox.osc.ui.components.LoadState
 import com.github.tvbox.osc.ui.components.AppTopBarScaffold
@@ -653,7 +653,7 @@ fun ConfigManageScreen(onNavigateBack: () -> Unit) {
 /**
  * 「换仓」bottom sheet:列出当前仓里的全部子源,点一条即切换。
  *
- * <p>样式同 `AVBoxOptionSheet`,但每条多带一行地址 —— 仓里常有同名子源,只给名字分不清。
+ * <p>样式同 `CcTvOptionSheet`,但每条多带一行地址 —— 仓里常有同名子源,只给名字分不清。
  * 被看门狗停用过的子源额外打「已禁用」标记(坏子源通常就藏在仓里,不标出来用户只会觉得"点了没反应")。
  */
 @Composable
@@ -665,9 +665,9 @@ private fun RepoSwitchSheet(
     onSelect: (String) -> Unit,
 ) {
     val dismissAnimated = LocalSheetDismiss.current
-    // 防连点(与 AVBoxOptionSheet 同款)
+    // 防连点(与 CcTvOptionSheet 同款)
     var accepted by remember { mutableStateOf(false) }
-    AVBoxBottomSheet(
+    CcTvBottomSheet(
         onDismissRequest = onDismiss,
         title = "换仓",
         containerColor = MaterialTheme.colorScheme.surfaceContainer,

@@ -45,7 +45,7 @@ fun VodCardMenu(state: VodCardMenuState) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     state.menu?.let { (video, collected) ->
-        AVBoxOptionSheet(
+        CcTvOptionSheet(
             onDismissRequest = { state.menu = null },
             title = video.name,
             options = if (collected) listOf("取消收藏", "搜索相似内容") else listOf("加入收藏", "搜索相似内容"),

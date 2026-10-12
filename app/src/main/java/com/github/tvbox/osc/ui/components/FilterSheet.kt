@@ -29,7 +29,7 @@ fun FilterSheet(
     onConfirm: (Map<String, String>) -> Unit,
 ) {
     var selection by remember(sort.id) { mutableStateOf(sort.filterSelect.toMap()) }
-    AVBoxBottomSheet(
+    CcTvBottomSheet(
         onDismissRequest = onDismiss,
         title = "筛选 · ${sort.name ?: ""}",
     ) {

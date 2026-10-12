@@ -7,7 +7,7 @@ import androidx.core.view.WindowCompat
 import com.github.tvbox.osc.R
 import com.github.tvbox.osc.base.BaseActivity
 import com.github.tvbox.osc.ui.page.MainScreen
-import com.github.tvbox.osc.ui.theme.AVBoxTheme
+import com.github.tvbox.osc.ui.theme.CcTvTheme
 import com.github.tvbox.osc.ui.theme.AppThemeState
 import com.github.tvbox.osc.util.PermissionHelper
 
@@ -40,7 +40,7 @@ class MainActivity : BaseActivity() {
         applyStatusBarAppearance()
         PermissionHelper.requestNotificationIfNeeded(this)
         findViewById<ComposeView>(R.id.compose_view).setContent {
-            AVBoxTheme {
+            CcTvTheme {
                 MainScreen()
             }
         }

@@ -6,7 +6,7 @@ import androidx.compose.ui.platform.ComposeView
 import com.github.tvbox.osc.R
 import com.github.tvbox.osc.base.BaseActivity
 import com.github.tvbox.osc.ui.page.FeedbackSuggestionScreen
-import com.github.tvbox.osc.ui.theme.AVBoxTheme
+import com.github.tvbox.osc.ui.theme.CcTvTheme
 import com.github.tvbox.osc.ui.theme.enableTransparentEdgeToEdge
 
 class FeedbackSuggestionActivity : BaseActivity() {
@@ -27,7 +27,7 @@ class FeedbackSuggestionActivity : BaseActivity() {
     override fun init() {
         enableTransparentEdgeToEdge()
         findViewById<ComposeView>(R.id.compose_view).setContent {
-            AVBoxTheme {
+            CcTvTheme {
                 FeedbackSuggestionScreen(onNavigateBack = { finish() })
             }
         }

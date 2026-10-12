@@ -21,7 +21,7 @@ import com.github.tvbox.osc.player.PageHost
 import com.github.tvbox.osc.player.PlaybackController
 import com.github.tvbox.osc.player.PlaybackService
 import com.github.tvbox.osc.ui.player.PlayContainer
-import com.github.tvbox.osc.ui.theme.AVBoxTheme
+import com.github.tvbox.osc.ui.theme.CcTvTheme
 import com.github.tvbox.osc.ui.theme.AppThemeState
 import com.github.tvbox.osc.util.MusicSettings
 import com.github.tvbox.osc.util.OfflineVideoCache
@@ -95,7 +95,7 @@ class DetailActivity : BaseActivity(), PageHost {
         val offlinePlayback = vm.initOfflineFromIntent(intent)
         if (!offlinePlayback) vm.initFromIntent(intent)
         findViewById<androidx.compose.ui.platform.ComposeView>(R.id.compose_view).setContent {
-            AVBoxTheme(manageStatusBarIcons = false) {
+            CcTvTheme(manageStatusBarIcons = false) {
                 DetailScreen(activity = this, vm = vm)
             }
         }

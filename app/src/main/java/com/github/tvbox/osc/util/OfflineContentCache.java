@@ -27,7 +27,7 @@ public final class OfflineContentCache {
     private static final String SEARCH_PREFIX = "offline.search.";
     private static final Gson GSON = new Gson();
     private static final ExecutorService WRITE_EXECUTOR = Executors.newSingleThreadExecutor(r -> {
-        Thread thread = new Thread(r, "avbox-offline-cache");
+        Thread thread = new Thread(r, "cc-tv-offline-cache");
         thread.setDaemon(true);
         return thread;
     });

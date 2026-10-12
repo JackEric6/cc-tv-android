@@ -52,7 +52,7 @@ fun ThemeColorPickerSheet(
     var hsv by remember { mutableStateOf(initialHsv.copyOf()) }
     val currentColor = remember(hsv) { android.graphics.Color.HSVToColor(hsv) }
 
-    AVBoxBottomSheet(onDismissRequest = onDismiss, title = title) {
+    CcTvBottomSheet(onDismissRequest = onDismiss, title = title) {
         val dismissAnimated = LocalSheetDismiss.current
         var accepted by remember { mutableStateOf(false) }
         Column(

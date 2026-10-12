@@ -178,7 +178,7 @@ dependencies {
     // 宿主源码无静态引用,禁止按"零引用"删除;keep 规则见 proguard-rules.pro
     implementation(libs.zxing.core)
 
-    // Compose UI(avbox-mobile-ui-spec §2)
+    // Compose UI
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)

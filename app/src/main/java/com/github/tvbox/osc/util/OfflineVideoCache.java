@@ -89,7 +89,7 @@ public final class OfflineVideoCache {
     private static final Semaphore DOWNLOAD_SLOTS =
             new Semaphore(MAX_ACTIVE_DOWNLOADS, true);
     private static final ExecutorService DOWNLOAD_EXECUTOR = Executors.newFixedThreadPool(MAX_ACTIVE_DOWNLOADS, r -> {
-        Thread thread = new Thread(r, "avbox-offline-video");
+        Thread thread = new Thread(r, "cc-tv-offline-video");
         thread.setDaemon(true);
         return thread;
     });
@@ -618,7 +618,7 @@ public final class OfflineVideoCache {
             temporaryParts.add(new File(parent, complete.getName() + ".part"));
         }
         final ExecutorService executor = Executors.newFixedThreadPool(workers, runnable -> {
-            Thread thread = new Thread(runnable, "avbox-offline-direct-range");
+            Thread thread = new Thread(runnable, "cc-tv-offline-direct-range");
             thread.setDaemon(true);
             return thread;
         });

@@ -33,7 +33,7 @@ import com.github.tvbox.osc.player.usecase.M3u8PurifyUseCase
 import com.github.tvbox.osc.player.usecase.PlayerSwitchUseCase
 import com.github.tvbox.osc.player.usecase.WebParseUseCase
 import com.github.tvbox.osc.subtitle.widget.SimpleSubtitleView
-import com.github.tvbox.osc.ui.theme.AVBoxTheme
+import com.github.tvbox.osc.ui.theme.CcTvTheme
 import com.github.tvbox.osc.util.DanmuHelper
 import com.github.tvbox.osc.util.HawkConfig
 import com.github.tvbox.osc.util.PlayerHelper
@@ -241,7 +241,7 @@ class ComposeVideoController @JvmOverloads constructor(
             // 状态全部保存在 PlayerUiState（控制器持有），重建无感（§7.6）
             setContent {
                 // 视频覆盖层挂在纯黑播放页:状态栏图标外观仍由宿主 Activity 断言,主题不接管
-                AVBoxTheme(manageStatusBarIcons = false) {
+                CcTvTheme(manageStatusBarIcons = false) {
                     PlayerOverlay(state, this@ComposeVideoController)
                 }
             }

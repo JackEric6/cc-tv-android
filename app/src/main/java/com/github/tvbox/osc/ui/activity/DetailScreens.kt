@@ -74,7 +74,7 @@ import com.github.tvbox.osc.api.ApiConfig
 import com.github.tvbox.osc.bean.Movie
 import com.github.tvbox.osc.bean.VodInfo
 import com.github.tvbox.osc.player.ui.playerDim
-import com.github.tvbox.osc.ui.components.AVBoxBottomSheet
+import com.github.tvbox.osc.ui.components.CcTvBottomSheet
 import com.github.tvbox.osc.ui.components.LoadState
 import com.github.tvbox.osc.ui.components.LoadStateBox
 
@@ -490,7 +490,7 @@ private fun EpisodeDownloadSheet(
     }
     val allSelected = selected.size == episodes.size
 
-    AVBoxBottomSheet(
+    CcTvBottomSheet(
         onDismissRequest = onDismiss,
         title = if (info.name.isNullOrEmpty()) "批量下载" else "${info.name} 批量下载",
         isScrollable = false,
@@ -866,7 +866,7 @@ private fun EpisodeSheet(vm: DetailViewModel, revision: Int) {
         }
     }
 
-    AVBoxBottomSheet(
+    CcTvBottomSheet(
         onDismissRequest = { vm.dismissEpisodeSheet() },
         title = if (info.name.isNullOrEmpty()) "选集" else "${info.name} 选集",
         isScrollable = false,

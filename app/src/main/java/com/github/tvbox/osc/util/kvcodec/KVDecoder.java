@@ -13,7 +13,7 @@ import java.util.Collection;
 import java.util.Map;
 
 /**
- * KV 值的纯 JVM 编解码核心(见 skill/avbox-kv-mmkv-spec.md §4.3):不依赖 Android,可单测 ——
+ * KV 值的纯 JVM 编解码核心:不依赖 Android,可单测 ——
  * 集合语义对齐是本次迁移最大的风险点(spec §6.1),必须有可重复执行的验证手段。
  *
  * <p>String 原样落盘;集合 / Map / JsonArray / 任意对象 Gson 文本化(带类型前缀),读侧按

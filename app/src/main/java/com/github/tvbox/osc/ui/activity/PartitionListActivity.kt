@@ -61,7 +61,7 @@ import com.github.tvbox.osc.ui.WindowSize
 import com.github.tvbox.osc.ui.page.PartitionListVM
 import com.github.tvbox.osc.ui.page.dispatchVodCardClick
 import com.github.tvbox.osc.ui.page.openVodCardOrDetail
-import com.github.tvbox.osc.ui.theme.AVBoxTheme
+import com.github.tvbox.osc.ui.theme.CcTvTheme
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 
@@ -114,7 +114,7 @@ class PartitionListActivity : BaseActivity() {
     override fun init() {
         enableTransparentEdgeToEdge()
         findViewById<ComposeView>(R.id.compose_view).setContent {
-            AVBoxTheme {
+            CcTvTheme {
                 PartitionListScreen(
                     mode = intent.getStringExtra(EXTRA_MODE) ?: MODE_PARTITION,
                     title = intent.getStringExtra(EXTRA_TITLE) ?: "",

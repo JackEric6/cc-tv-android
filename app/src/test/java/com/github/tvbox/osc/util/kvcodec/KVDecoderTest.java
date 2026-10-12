@@ -19,7 +19,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * KV 编解码语义单测(avbox-kv-mmkv-spec §5-P0 / §6.1 高风险项):集合、JsonArray、嵌套 Map
+ * KV 编解码语义单测:集合、JsonArray、嵌套 Map
  * 与 Hawk 旧行为一致,且失败不再静默。
  *
  * <p>纯 JVM 运行(不依赖 Android / MMKV):{@link KVDecoder} 在本包内不含任何平台依赖。

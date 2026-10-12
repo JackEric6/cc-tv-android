@@ -12,7 +12,7 @@ import java.util.HashMap;
 import xyz.doikki.videoplayer.player.AbstractPlayer;
 
 /**
- * 播放调度层需要的"视图侧契约"(播放服务化 Spec §3-P1 出口条件,`skill/avbox-playback-service-spec.md`)。
+ * 播放调度层需要的视图侧契约。
  *
  * <p>动机:`PlaybackController` 接管"会话数据 / 取流解析 / 重试换线 / 超时 / 起播 / 预载 / 媒体会话"后,
  * 仍需要页面提供"播这个地址""把播放器释放掉""弹个提示""读当前播放状态""建一个嗅探 WebView 并挂上去"

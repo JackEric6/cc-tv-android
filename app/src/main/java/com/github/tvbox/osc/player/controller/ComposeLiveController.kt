@@ -14,7 +14,7 @@ import xyz.doikki.videoplayer.util.PlayerUtils
 import kotlin.math.abs
 
 /**
- * 直播控制层 Compose 化(avbox-mobile-ui-spec Step 5,复用方案 C1 思路):
+ * 直播控制层 Compose 化:
  * - 继承 [BaseVideoController],`getLayoutId() = 0`,**无任何自绘 UI**(headless):
  *   loading / 时移条 / 全屏浮层 / 手势指示器全部由 LivePlayActivity 的 Compose 层渲染;
  * - 职责只剩两件事:

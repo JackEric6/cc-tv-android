@@ -62,7 +62,7 @@ import okhttp3.Response;
 final class OfflineHlsTransformer {
     private static final ExecutorService EXECUTOR = Executors.newFixedThreadPool(
             OfflineVideoCache.MAX_ACTIVE_DOWNLOADS, runnable -> {
-        Thread thread = new Thread(runnable, "avbox-offline-hls");
+        Thread thread = new Thread(runnable, "cc-tv-offline-hls");
         thread.setDaemon(true);
         return thread;
     });
@@ -168,7 +168,7 @@ final class OfflineHlsTransformer {
     private static void convert(Context context, String key, File target, String playlistUrl,
                                 Map<String, String> headers,
                                 OfflineVideoCache.DownloadHandle handle) {
-        HandlerThread transformerThread = new HandlerThread("avbox-hls-transformer");
+        HandlerThread transformerThread = new HandlerThread("cc-tv-hls-transformer");
         File outputPart = new File(target.getParentFile(), target.getName() + ".part");
         if (!OfflineVideoCache.acquireDownloadSlot(handle)) {
             ACTIVE.remove(key, handle);
@@ -454,7 +454,7 @@ final class OfflineHlsTransformer {
         // 让其他下载任务看起来像“只有一个在下载”。
         final ExecutorService segmentExecutor = Executors.newFixedThreadPool(
                 Math.min(DIRECT_SEGMENT_CONCURRENCY, Math.max(1, segments.size())), runnable -> {
-                    Thread thread = new Thread(runnable, "avbox-offline-hls-segment");
+                    Thread thread = new Thread(runnable, "cc-tv-offline-hls-segment");
                     thread.setDaemon(true);
                     return thread;
                 });

@@ -7,7 +7,7 @@ import androidx.compose.ui.platform.ComposeView
 import com.github.tvbox.osc.R
 import com.github.tvbox.osc.base.BaseActivity
 import com.github.tvbox.osc.ui.page.PreloadSettingsScreen
-import com.github.tvbox.osc.ui.theme.AVBoxTheme
+import com.github.tvbox.osc.ui.theme.CcTvTheme
 
 class PreloadSettingsActivity : BaseActivity() {
 
@@ -27,7 +27,7 @@ class PreloadSettingsActivity : BaseActivity() {
     override fun init() {
         enableTransparentEdgeToEdge()
         findViewById<ComposeView>(R.id.compose_view).setContent {
-            AVBoxTheme {
+            CcTvTheme {
                 PreloadSettingsScreen(onNavigateBack = { finish() })
             }
         }

@@ -122,7 +122,7 @@ public class JarLoader {
                 // 闸门 —— getApplicationInfo(getPackageName()) -> getApplicationLabel,再用内置
                 // AES 密文("XMjUpOPJ...",key/iv 由 Init.short[1664] 运行时解出)解出逗号分隔的包名
                 // 表(共 50 个:com.fongmi.android.tv、com.github.tvbox.osc(MBox)、com.hisense... 等,
-                // **不含本包名 com.github.avbox.osc**);未命中即提示"包名不匹配,当前包名: xxx"
+                // **不含本应用包名**);未命中即提示"包名不匹配,当前包名: xxx"
                 // 并在 5 秒后 Process.killProcess。所以本应用无法通过闸门,伪装包名也只会撞上
                 // Android 11+ 包可见性(NameNotFoundException) —— 伪装这条路已废弃。
                 //

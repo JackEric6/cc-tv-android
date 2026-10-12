@@ -6,7 +6,7 @@ import androidx.annotation.Nullable;
 import com.github.tvbox.osc.bean.VodInfo;
 
 /**
- * 一次播放会话的数据(播放服务化 Spec §2.1,`skill/avbox-playback-service-spec.md`)。
+ * 一次播放会话的数据。
  *
  * <p>背景:改造前页面把"播什么"经两个隐式通道交给播放器 —— `App.getInstance().setVodInfo(vod)`
  * 全局单槽 + `Bundle(sourceKey/userPickedLine)`。全局单槽与"页面可叠加"天然冲突(详情页 B 覆盖

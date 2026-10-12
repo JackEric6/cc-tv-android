@@ -5,7 +5,7 @@ import android.content.Context;
 import androidx.annotation.NonNull;
 
 /**
- * 播放侧需要的"页面能力"(播放服务化 Spec §2.1,`skill/avbox-playback-service-spec.md`)。
+ * 播放侧需要的页面能力。
  *
  * <p>动机:改造前 `PlayContainer` 直接持 `Activity` 并用 `instanceof DetailActivity` 回调页面
  * (本地字幕选择器 / 线路耗尽后的换源兜底)。播放层搬到服务后不再允许依赖具体 Activity,

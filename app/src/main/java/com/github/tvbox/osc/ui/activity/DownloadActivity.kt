@@ -7,7 +7,7 @@ import com.github.tvbox.osc.R
 import com.github.tvbox.osc.base.BaseActivity
 import com.github.tvbox.osc.ui.page.DownloadPage
 import com.github.tvbox.osc.ui.page.launchCachedTask
-import com.github.tvbox.osc.ui.theme.AVBoxTheme
+import com.github.tvbox.osc.ui.theme.CcTvTheme
 import com.github.tvbox.osc.ui.theme.enableTransparentEdgeToEdge
 
 class DownloadActivity : BaseActivity() {
@@ -25,7 +25,7 @@ class DownloadActivity : BaseActivity() {
     override fun init() {
         enableTransparentEdgeToEdge()
         findViewById<ComposeView>(R.id.compose_view).setContent {
-            AVBoxTheme {
+            CcTvTheme {
                 DownloadPage(
                     onNavigateBack = { finish() },
                     onPlay = { task -> launchCachedTask(this@DownloadActivity, task) },

@@ -29,7 +29,7 @@ public class ScreenUtils {
      * (API 23+ 未授权会 SecurityException),于是清单里长期挂着一个没人用的敏感权限。
      *
      * <p>但本项目是**纯手机定位**(`abiFilters` 只有 arm64-v8a、TV/遥控器适配代码已全删,
-     * 见 avbox-mobile-ui-spec §1):真正需要防的反而是"大屏手机被 SCREENLAYOUT_SIZE_LARGE
+     * 见移动端适配说明 §1):真正需要防的反而是"大屏手机被 SCREENLAYOUT_SIZE_LARGE
      * 误判成 TV"(会莫名隐藏锁屏钮)。故只保留"系统声明为 TV"这一个权威判据,
      * 电话权限随之从清单移除。
      */

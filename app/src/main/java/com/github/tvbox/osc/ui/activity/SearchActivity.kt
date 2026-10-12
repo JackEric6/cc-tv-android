@@ -81,7 +81,7 @@ import com.github.tvbox.osc.ui.components.VodCardMenu
 import com.github.tvbox.osc.ui.components.glassTopBarSurface
 import com.github.tvbox.osc.ui.components.rememberVodCardMenuState
 import com.github.tvbox.osc.ui.components.SettingsIconBadge
-import com.github.tvbox.osc.ui.theme.AVBoxTheme
+import com.github.tvbox.osc.ui.theme.CcTvTheme
 import com.github.tvbox.osc.ui.theme.cardContainer
 import com.github.tvbox.osc.ui.activity.PartitionListActivity
 import com.github.tvbox.osc.ui.page.ManageActionIcon
@@ -122,7 +122,7 @@ class SearchActivity : BaseActivity() {
     override fun init() {
         enableTransparentEdgeToEdge()
         findViewById<androidx.compose.ui.platform.ComposeView>(R.id.compose_view).setContent {
-            AVBoxTheme {
+            CcTvTheme {
                 SearchScreen()
             }
         }

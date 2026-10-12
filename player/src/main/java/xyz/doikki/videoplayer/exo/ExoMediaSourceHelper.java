@@ -31,10 +31,10 @@ import okhttp3.OkHttpClient;
 public final class ExoMediaSourceHelper {
     public static final String HEADER_FORMAT = "TVBox-Format";
     /** MediaItem.requestMetadata.extras 中承载 http headers 的 key（HashMap&lt;String,String&gt;） */
-    public static final String EXTRA_HEADERS = "avbox.extras.httpHeaders";
+    public static final String EXTRA_HEADERS = "cc-tv.extras.httpHeaders";
 
     private static ExoMediaSourceHelper sInstance;
-    /** 进程级共享缓存(预载写盘与播放读盘共用同一实例,见 skill/avbox-preload-next-episode-spec.md §10) */
+    /** 进程级共享缓存,预载写盘与播放读盘共用同一实例 */
     private static volatile Cache sSharedCache;
     /** 共享缓存容量(字节,默认 512MB):须在 getSharedCache 首次创建前注入(设置改动→重启 App 生效) */
     private static volatile long sSharedCacheSizeBytes = 512L * 1024 * 1024;

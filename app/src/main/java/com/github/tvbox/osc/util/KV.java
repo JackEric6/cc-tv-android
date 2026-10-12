@@ -9,7 +9,7 @@ import com.github.tvbox.osc.util.kv.KVCodec;
 import com.tencent.mmkv.MMKV;
 
 /**
- * 全项目键值存储门面(2026-09-13 起为唯一实现,取代 Hawk,见 skill/avbox-kv-mmkv-spec.md)。
+ * 全项目键值存储门面(2026-09-13 起为唯一实现,取代 Hawk)。
  *
  * <p>MMKV 原生承载:String / 基本类型走 MMKV 原生编码,集合与复杂值由 {@link KVCodec} 编解码,
  * 元素类型在 {@link com.github.tvbox.osc.util.kv.KVKeySpec} 集中登记。

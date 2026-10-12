@@ -169,7 +169,7 @@ fun CastSheet(sheet: CastSheetState, onDismiss: () -> Unit) {
                 SheetTitle("投屏到设备")
                 Spacer(Modifier.height(playerDim(R.dimen.vs_15)))
                 Text(
-                    text = "确认电视/盒子已安装AVBox或已打开DLNA投屏\n电视/盒子与手机连接在同一Wi-Fi下",
+                    text = "确认电视/盒子已安装丛丛影视或已打开DLNA投屏\n电视/盒子与手机连接在同一Wi-Fi下",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = playerTextSize(R.dimen.ts_18),
                     textAlign = TextAlign.Center,

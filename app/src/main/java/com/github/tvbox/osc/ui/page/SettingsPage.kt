@@ -53,7 +53,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.github.tvbox.osc.R
 import com.github.tvbox.osc.ui.components.AppTopBarScaffold
-import com.github.tvbox.osc.ui.components.AVBoxBottomSheet
+import com.github.tvbox.osc.ui.components.CcTvBottomSheet
 import com.github.tvbox.osc.ui.components.SettingsCard
 import com.github.tvbox.osc.ui.components.SettingsCardPosition
 import com.github.tvbox.osc.ui.components.SettingsGroup
@@ -419,7 +419,7 @@ private fun AppInfoHeaderCard(versionName: String) {
 
 @Composable
 private fun AboutSheet(versionName: String, onDismiss: () -> Unit) {
-    AVBoxBottomSheet(onDismissRequest = onDismiss, title = "关于") {
+    CcTvBottomSheet(onDismissRequest = onDismiss, title = "关于") {
         Column(
             modifier = Modifier
                 .fillMaxWidth()

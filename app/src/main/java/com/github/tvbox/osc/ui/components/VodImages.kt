@@ -378,7 +378,7 @@ object VodImages {
     }
 
     private fun daemonThreadFactory(prefix: String): ThreadFactory = ThreadFactory { runnable ->
-        Thread(runnable, "avbox-$prefix").apply { isDaemon = true }
+        Thread(runnable, "cc-tv-$prefix").apply { isDaemon = true }
     }
 
     private fun picClient(): OkHttpClient = OkHttpClient.Builder()
@@ -503,7 +503,7 @@ object VodImages {
     internal fun parseVodPicUrl(raw: String): Pair<String, Map<String, String>>? {
         if (raw.startsWith("data:")) return null
 
-        // 只有明确的扩展字段才是 AVBox 的 @ 元数据分隔符；普通 URL
+        // 只有明确的扩展字段才是本项目的 @ 元数据分隔符；普通 URL
         // 可能合法包含 @（例如 userinfo），不能按任意 @ 截断。
         val markers = listOf("@Headers=", "@Cookie=", "@User-Agent=", "@Referer=")
         val firstMarker = markers.map { raw.indexOf(it) }

@@ -71,7 +71,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.github.tvbox.osc.bean.LiveChannelGroup
 import com.github.tvbox.osc.bean.LiveChannelItem
-import com.github.tvbox.osc.ui.components.AVBoxBottomSheet
+import com.github.tvbox.osc.ui.components.CcTvBottomSheet
 import com.github.tvbox.osc.ui.components.LoadStateBox
 import com.github.tvbox.osc.ui.components.LoadState
 import com.github.tvbox.osc.ui.components.LocalSheetDismiss
@@ -487,7 +487,7 @@ private fun ChannelRow(
 private fun EpgSheet(activity: LivePlayActivity) {
     activity.epgVersion
     val channelNameStr = activity.channelName?.channelName ?: ""
-    AVBoxBottomSheet(
+    CcTvBottomSheet(
         onDismissRequest = { activity.epgSheetVisible = false },
         title = if (channelNameStr.isEmpty()) "节目单" else "节目单 · $channelNameStr",
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
@@ -502,7 +502,7 @@ private fun EpgSheet(activity: LivePlayActivity) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
             )
-            return@AVBoxBottomSheet
+            return@CcTvBottomSheet
         }
         val canCatchup = activity.canCurrentChannelCatchup()
         val now = Date()
@@ -560,7 +560,7 @@ private fun EpgSheet(activity: LivePlayActivity) {
 private fun SettingsSheet(activity: LivePlayActivity) {
     activity.settingsVersion
     val groups = activity.visibleSettingGroups()
-    AVBoxBottomSheet(
+    CcTvBottomSheet(
         onDismissRequest = { activity.settingsSheetVisible = false },
         title = "直播设置",
         containerColor = MaterialTheme.colorScheme.surfaceContainer,

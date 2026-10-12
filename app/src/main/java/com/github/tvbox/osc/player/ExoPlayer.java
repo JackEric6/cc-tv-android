@@ -218,7 +218,7 @@ public class ExoPlayer extends ExoMediaPlayer {
     }
 
     /**
-     * 预载命中注入（预载方案第一期,见 skill/avbox-preload-next-episode-spec.md §5.4）:
+     * 预载命中注入（预载方案第一期）:
      * prepare 前用 url+headers 查预载 registry,命中则把预载中的 PreloadMediaSource（含已缓冲数据）
      * 直接替换为本 player 的 MediaSource,跳过网络冷启动,实现秒开;未命中走原逻辑,行为不变。
      */
