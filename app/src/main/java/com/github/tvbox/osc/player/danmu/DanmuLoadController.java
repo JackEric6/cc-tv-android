@@ -233,6 +233,28 @@ public class DanmuLoadController {
                             }
                         }
                     });
+                    parser.setParseResultListener(renderedCount -> {
+                        if (seq != loadSeq.get()) return;
+                        if (danmuView == null) {
+                            notifyLoadFailed(seq);
+                            return;
+                        }
+                        boolean resultPosted = danmuView.post(() -> {
+                            if (seq != loadSeq.get()) return;
+                            if (renderedCount <= 0) {
+                                LOG.e("echo-danmu candidate parsed no renderable comments");
+                                preparingSeq = -1;
+                                danmuView.setVisibility(View.GONE);
+                                danmuView.release();
+                                notifyLoadFailed(seq);
+                                return;
+                            }
+                            startIfReady(seq);
+                            danmuView.postDelayed(() -> startIfReady(seq), 300);
+                            danmuView.postDelayed(() -> startIfReady(seq), 1000);
+                        });
+                        if (!resultPosted && renderedCount <= 0) dispatchLoadFailed(seq);
+                    });
                     if (seq != loadSeq.get()) return;
                     danmuCount = parser.getDanmuCount();
                 } catch (Throwable th) {
@@ -262,9 +284,6 @@ public class DanmuLoadController {
                         }
                         danmuView.prepare(parser, danmakuContext);
                         danmuView.setVisibility(isDisplayEnabled() ? View.VISIBLE : View.GONE);
-                        startIfReady(seq);
-                        danmuView.postDelayed(() -> startIfReady(seq), 300);
-                        danmuView.postDelayed(() -> startIfReady(seq), 1000);
                     } catch (Throwable th) {
                         LOG.e("echo-danmu prepare error: " + th.getMessage());
                         danmuView.setVisibility(View.GONE);

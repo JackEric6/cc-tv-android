@@ -17,7 +17,6 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.SocketTimeoutException;
 import java.security.cert.CertificateException;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.GZIPInputStream;
@@ -43,8 +42,13 @@ import master.flame.danmaku.danmaku.util.DanmakuUtils;
 import okhttp3.Call;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
+import okhttp3.Response;
 
 public class Parser extends BaseDanmakuParser {
+    public interface ParseResultListener {
+        void onParsed(int renderedCount);
+    }
+
     public interface CancelChecker {
         boolean isCancelled();
 
@@ -77,6 +81,7 @@ public class Parser extends BaseDanmakuParser {
     private static volatile OkHttpClient UNSAFE_HTTP_CLIENT = buildHttpClient(true);
     private final Danmu danmu;
     private final CancelChecker cancelChecker;
+    private volatile ParseResultListener parseResultListener;
     private float scaleX;
     private float scaleY;
     private int index;
@@ -94,6 +99,10 @@ public class Parser extends BaseDanmakuParser {
         return danmu.getData().size();
     }
 
+    public void setParseResultListener(ParseResultListener listener) {
+        parseResultListener = listener;
+    }
+
     private String resolveContent(String input) {
         if (isCancelled()) return "";
         if (TextUtils.isEmpty(input)) return "";
@@ -101,53 +110,12 @@ public class Parser extends BaseDanmakuParser {
         if (source.startsWith("file")) return FileUtils.read(source);
         if (source.startsWith("http")) {
             try {
-                if (isCancelled()) return "";
-                okhttp3.Response response = executeHttp(source);
-                if (isCancelled()) {
-                    response.close();
-                    return "";
-                }
-                String content = readBody(response);
-                LOG.i("echo-danmu http code: " + response.code()
-                        + ", encoding: " + response.header("Content-Encoding", "")
-                        + ", length: " + content.length());
-                return content;
-            } catch (SocketTimeoutException e) {
-                if (isLocalProxy(source)) {
-                    try {
-                        LOG.e("echo-danmu load timeout, retry local proxy");
-                        if (isCancelled()) return "";
-                        okhttp3.Response response = executeHttp(source);
-                        if (isCancelled()) {
-                            response.close();
-                            return "";
-                        }
-                        String content = readBody(response);
-                        LOG.i("echo-danmu retry http code: " + response.code()
-                                + ", encoding: " + response.header("Content-Encoding", "")
-                                + ", length: " + content.length());
-                        return content;
-                    } catch (Throwable retryError) {
-                        LOG.e("echo-danmu retry error: " + retryError.getMessage());
-                    }
-                }
-                LOG.e("echo-danmu load error: timeout");
-                return "";
+                return loadHttp(source, false);
             } catch (Throwable th) {
                 if (source.startsWith("https") && isSslError(th)) {
                     try {
                         LOG.i("echo-danmu ssl verify failed, retry unsafe ssl");
-                        if (isCancelled()) return "";
-                        okhttp3.Response response = executeUnsafeHttp(source);
-                        if (isCancelled()) {
-                            response.close();
-                            return "";
-                        }
-                        String content = readBody(response);
-                        LOG.i("echo-danmu unsafe ssl http code: " + response.code()
-                                + ", encoding: " + response.header("Content-Encoding", "")
-                                + ", length: " + content.length());
-                        return content;
+                        return loadHttp(source, true);
                     } catch (Throwable retryError) {
                         LOG.e("echo-danmu unsafe ssl retry error: " + retryError.getMessage());
                     }
@@ -157,6 +125,63 @@ public class Parser extends BaseDanmakuParser {
             }
         }
         return source;
+    }
+
+    private String loadHttp(String source, boolean unsafeSsl) throws IOException {
+        IOException lastError = null;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            if (isCancelled()) return "";
+            try (Response response = unsafeSsl ? executeUnsafeHttp(source) : executeHttp(source)) {
+                if (!response.isSuccessful()) {
+                    HttpStatusException error = new HttpStatusException(response.code());
+                    if (!error.isRetryable()) throw error;
+                    lastError = error;
+                } else {
+                    String content = readBody(response);
+                    if (!TextUtils.isEmpty(content.trim())) {
+                        LOG.i("echo-danmu http code: " + response.code()
+                                + ", encoding: " + response.header("Content-Encoding", "")
+                                + ", length: " + content.length()
+                                + (attempt == 0 ? "" : ", retry=" + attempt));
+                        return content;
+                    }
+                    lastError = new IOException("empty danmaku response");
+                }
+            } catch (IOException e) {
+                if (isSslError(e) || attempt >= 1 || !isRetryable(e)) throw e;
+                lastError = e;
+            }
+            if (attempt < 1) waitBeforeRetry(attempt);
+        }
+        throw lastError == null ? new IOException("danmaku request failed") : lastError;
+    }
+
+    private boolean isRetryable(IOException error) {
+        if (isSslError(error)) return false;
+        return !(error instanceof HttpStatusException) || ((HttpStatusException) error).isRetryable();
+    }
+
+    private void waitBeforeRetry(int attempt) throws IOException {
+        if (isCancelled()) throw new IOException("danmaku request cancelled");
+        try {
+            Thread.sleep(300L * (attempt + 1));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("danmaku retry interrupted", e);
+        }
+    }
+
+    private static final class HttpStatusException extends IOException {
+        private final int code;
+
+        HttpStatusException(int code) {
+            super("HTTP " + code);
+            this.code = code;
+        }
+
+        boolean isRetryable() {
+            return code == 408 || code == 429 || code >= 500;
+        }
     }
 
     private boolean isCancelled() {
@@ -206,11 +231,6 @@ public class Parser extends BaseDanmakuParser {
             th = th.getCause();
         }
         return false;
-    }
-
-    private boolean isLocalProxy(String source) {
-        return source.startsWith("http://127.0.0.1:")
-                || source.startsWith("http://localhost:");
     }
 
     private String readBody(okhttp3.Response response) throws IOException {
@@ -276,6 +296,14 @@ public class Parser extends BaseDanmakuParser {
             renderedCount++;
         }
         LOG.i("echo-danmu rendered count: " + renderedCount);
+        ParseResultListener listener = parseResultListener;
+        if (listener != null) {
+            try {
+                listener.onParsed(renderedCount);
+            } catch (Throwable th) {
+                LOG.e("echo-danmu parse result callback error: " + th.getMessage());
+            }
+        }
         return result;
     }
 

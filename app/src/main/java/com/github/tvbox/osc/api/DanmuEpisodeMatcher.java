@@ -15,6 +15,7 @@ public final class DanmuEpisodeMatcher {
     };
     private static final Pattern UNMARKED_EPISODE_PATTERN = Pattern.compile(
             "(?:^|[\\s._#\\-/\\[\\]()])0*(\\d{1,3})(?=$|[\\s._#\\-/\\[\\]()])");
+    private static final Pattern MOVIE_PROMO_PATTERN = Pattern.compile("(?i)\\bpv\\b");
     private DanmuEpisodeMatcher() {
     }
 
@@ -62,12 +63,22 @@ public final class DanmuEpisodeMatcher {
 
         int requestedNumber = episodeNumber(requestedEpisode);
         int candidateNumber = episodeNumber(candidateTitle);
+        boolean matchesTitle = matchesSeriesTitle(seriesTitle, candidateTitle);
+        boolean movieCandidate = isMovieCandidate(candidateTitle);
+        if (movieCandidate && isMovieFragment(candidateTitle)) return -1;
         int score;
         if (requestedNumber > 0) {
-            if (candidateNumber != requestedNumber) return -1;
-            score = 100;
+            if (candidateNumber == requestedNumber) {
+                score = 100;
+            } else if (movieCandidate && matchesTitle) {
+                score = 60;
+            } else {
+                return -1;
+            }
         } else if (normalize(candidateTitle).contains(normalize(requestedEpisode))) {
             score = 80;
+        } else if (movieCandidate && matchesTitle) {
+            score = 60;
         } else {
             return -1;
         }
@@ -78,7 +89,7 @@ public final class DanmuEpisodeMatcher {
             if (requestedSeason != candidateSeason) return -1;
             score += 10;
         }
-        if (matchesSeriesTitle(seriesTitle, candidateTitle)) {
+        if (matchesTitle) {
             score += 20;
         }
         return score;
@@ -96,6 +107,20 @@ public final class DanmuEpisodeMatcher {
 
     private static boolean isVideoQuality(int number) {
         return number == 360 || number == 480 || number == 720 || number == 1080 || number == 1440;
+    }
+
+    private static boolean isMovieCandidate(String title) {
+        String value = title.toLowerCase(java.util.Locale.ROOT);
+        return value.contains("电影") || value.contains("剧场版")
+                || value.contains("movie") || value.contains("film");
+    }
+
+    private static boolean isMovieFragment(String title) {
+        String value = title.toLowerCase(java.util.Locale.ROOT);
+        return value.contains("片段") || value.contains("预告") || value.contains("花絮")
+                || value.contains("宣传片") || value.contains("trailer")
+                || value.contains("preview") || value.contains("clip")
+                || MOVIE_PROMO_PATTERN.matcher(value).find();
     }
 
     private static int parseNumber(String value) {

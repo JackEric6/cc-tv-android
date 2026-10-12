@@ -40,6 +40,7 @@ public class DanmakuApi {
     private static final long BUILTIN_TIMEOUT = TimeUnit.SECONDS.toMillis(20);
     private static final int BUILTIN_MAX_RETRY = 1;
     private static final int SEARCH_LIST_MAX_RETRY = 1;
+    private static final int COMMENT_MAX_RETRY = 1;
     private static final int EPISODE_QUERY_NUMBER = 0;
     private static final int EPISODE_QUERY_EMPTY = 1;
     private static final Handler handler = new Handler(Looper.getMainLooper());
@@ -183,10 +184,14 @@ public class DanmakuApi {
             notifySearchResultSuccess(callback, seq, result.getUrl());
             return;
         }
-        OkHttp.newCall(OkHttp.client(BUILTIN_TIMEOUT), result.getUrl(), TAG).enqueue(new Callback() {
+        loadBuiltInSearchResult(result, callback, seq, 0);
+    }
+
+    private static void loadBuiltInSearchResult(DanmuSearchResult result, SearchResultCallback callback, int seq, int retry) {
+        OkHttp.newCall(builtinClient(), result.getUrl(), TAG).enqueue(new Callback() {
             @Override
             public void onFailure(@NonNull Call call, @NonNull IOException e) {
-                notifySearchResultError(callback, seq, getErrorMessage(e));
+                retryBuiltInSearchResult(result, callback, seq, retry, e);
             }
 
             @Override
@@ -198,12 +203,24 @@ public class DanmakuApi {
                     if (TextUtils.isEmpty(danmu)) throw new IOException("未获取到弹幕内容");
                     notifySearchResultSuccess(callback, seq, danmu);
                 } catch (Throwable th) {
-                    notifySearchResultError(callback, seq, getErrorMessage(th));
+                    retryBuiltInSearchResult(result, callback, seq, retry, th);
                 } finally {
                     response.close();
                 }
             }
         });
+    }
+
+    private static void retryBuiltInSearchResult(DanmuSearchResult result, SearchResultCallback callback,
+                                                  int seq, int retry, Throwable error) {
+        if (!isCurrentSearch(seq)) return;
+        if (retry < COMMENT_MAX_RETRY) {
+            handler.postDelayed(() -> {
+                if (isCurrentSearch(seq)) loadBuiltInSearchResult(result, callback, seq, retry + 1);
+            }, 350L);
+        } else {
+            notifySearchResultError(callback, seq, getErrorMessage(error));
+        }
     }
 
     public static void cancel() {
@@ -214,17 +231,10 @@ public class DanmakuApi {
     private static void searchBuiltinList(String apiUrl, String name, SearchListCallback callback, int seq, int retry) {
         String baseUrl = normalizeBaseUrl(apiUrl);
         String searchUrl = baseUrl + "/api/v2/search/episodes?anime=" + encode(Trans.t2s(name == null ? "" : name));
-        OkHttp.newCall(searchClient(), searchUrl, TAG).enqueue(new Callback() {
+        OkHttp.newCall(builtinClient(), searchUrl, TAG).enqueue(new Callback() {
             @Override
             public void onFailure(@NonNull Call call, @NonNull IOException e) {
-                if (!isCurrentSearch(seq)) return;
-                if (retry < SEARCH_LIST_MAX_RETRY) {
-                    handler.postDelayed(() -> {
-                        if (isCurrentSearch(seq)) searchBuiltinList(apiUrl, name, callback, seq, retry + 1);
-                    }, 250L);
-                } else {
-                    notifySearchListError(callback, seq, getErrorMessage(e));
-                }
+                retryBuiltinSearchList(apiUrl, name, callback, seq, retry, e);
             }
 
             @Override
@@ -232,14 +242,32 @@ public class DanmakuApi {
                 try {
                     if (!response.isSuccessful()) throw new IOException("HTTP " + response.code());
                     String body = response.body() == null ? "" : response.body().string();
-                    notifySearchListSuccess(callback, seq, parseBuiltinSearchList(body, baseUrl));
+                    List<DanmuSearchResult> results = parseBuiltinSearchList(body, baseUrl);
+                    if (results.isEmpty() && retry < SEARCH_LIST_MAX_RETRY) {
+                        retryBuiltinSearchList(apiUrl, name, callback, seq, retry,
+                                new IOException("弹幕搜索暂时无结果"));
+                    } else {
+                        notifySearchListSuccess(callback, seq, results);
+                    }
                 } catch (Throwable th) {
-                    notifySearchListError(callback, seq, getErrorMessage(th));
+                    retryBuiltinSearchList(apiUrl, name, callback, seq, retry, th);
                 } finally {
                     response.close();
                 }
             }
         });
+    }
+
+    private static void retryBuiltinSearchList(String apiUrl, String name, SearchListCallback callback,
+                                               int seq, int retry, Throwable error) {
+        if (!isCurrentSearch(seq)) return;
+        if (retry < SEARCH_LIST_MAX_RETRY) {
+            handler.postDelayed(() -> {
+                if (isCurrentSearch(seq)) searchBuiltinList(apiUrl, name, callback, seq, retry + 1);
+            }, 350L);
+        } else {
+            notifySearchListError(callback, seq, getErrorMessage(error));
+        }
     }
 
     private static void searchBuiltin(String apiUrl, String name, String episode, SearchCallback callback, int retry, int seq) {
@@ -254,7 +282,7 @@ public class DanmakuApi {
         final String searchUrl = baseUrl + "/api/v2/search/episodes?anime=" + encode(simpleName)
                 + (TextUtils.isEmpty(episodeQuery) ? "" : "&episode=" + encode(episodeQuery));
 //        LOG.i("echo-danmaku builtin search episodes: " + searchUrl + ", retry=" + retry + ", mode=" + queryMode);
-        OkHttp.newCall(searchClient(), searchUrl, TAG).enqueue(new Callback() {
+        OkHttp.newCall(builtinClient(), searchUrl, TAG).enqueue(new Callback() {
             @Override
             public void onFailure(@NonNull Call call, @NonNull IOException e) {
                 if (!isCurrentSearch(seq)) return;
@@ -290,6 +318,14 @@ public class DanmakuApi {
                     searchBuiltinAnime(baseUrl, simpleName, simpleEpisode, callback, seq, true);
                 } catch (Throwable th) {
                     LOG.e("echo-danmaku builtin episode parse error: " + th.getMessage());
+                    if (retry < BUILTIN_MAX_RETRY) {
+                        handler.postDelayed(() -> {
+                            if (isCurrentSearch(seq)) {
+                                searchBuiltin(apiUrl, name, episode, callback, retry + 1, seq, queryMode);
+                            }
+                        }, 350L);
+                        return;
+                    }
                     if (tryNextEpisodeQuery(apiUrl, name, episode, callback, retry, seq, queryMode)) return;
                     searchBuiltinAnime(baseUrl, simpleName, simpleEpisode, callback, seq, true);
                 } finally {
@@ -310,7 +346,7 @@ public class DanmakuApi {
     private static void searchBuiltinAnime(String baseUrl, String name, String episode, SearchCallback callback, int seq, boolean notifyOnEmpty) {
         final String searchUrl = baseUrl + "/api/v2/search/anime?keyword=" + encode(name);
         LOG.i("echo-danmaku builtin search anime: " + searchUrl);
-        OkHttp.newCall(searchClient(), searchUrl, TAG).enqueue(new Callback() {
+        OkHttp.newCall(builtinClient(), searchUrl, TAG).enqueue(new Callback() {
             @Override
             public void onFailure(@NonNull Call call, @NonNull IOException e) {
                 if (!isCurrentSearch(seq)) return;
@@ -343,7 +379,7 @@ public class DanmakuApi {
     private static void loadBuiltinBangumi(String baseUrl, String animeId, String episode, SearchCallback callback, int seq) {
         final String bangumiUrl = baseUrl + "/api/v2/bangumi/" + animeId;
 //        LOG.i("echo-danmaku builtin bangumi: " + bangumiUrl);
-        OkHttp.newCall(searchClient(), bangumiUrl, TAG).enqueue(new Callback() {
+        OkHttp.newCall(builtinClient(), bangumiUrl, TAG).enqueue(new Callback() {
             @Override
             public void onFailure(@NonNull Call call, @NonNull IOException e) {
                 if (!isCurrentSearch(seq)) return;
@@ -375,6 +411,11 @@ public class DanmakuApi {
     }
 
     private static void loadBuiltinComment(String baseUrl, String title, String episode, EpisodeMatch episodeMatch, SearchCallback callback, int seq) {
+        loadBuiltinComment(baseUrl, title, episode, episodeMatch, callback, seq, 0);
+    }
+
+    private static void loadBuiltinComment(String baseUrl, String title, String episode, EpisodeMatch episodeMatch,
+                                           SearchCallback callback, int seq, int retry) {
         final String commentUrl = baseUrl + "/api/v2/comment/" + episodeMatch.id + "?format=json";
         LOG.i("echo-danmaku builtin load title: " + safeLog(title)
                 + ", request episode: " + safeLog(episode)
@@ -382,12 +423,12 @@ public class DanmakuApi {
                 + ", matched number: " + episodeMatch.number
                 + ", episodeId: " + episodeMatch.id);
         LOG.i("echo-danmaku builtin comment: " + commentUrl);
-        OkHttp.newCall(OkHttp.client(BUILTIN_TIMEOUT), commentUrl, TAG).enqueue(new Callback() {
+        OkHttp.newCall(builtinClient(), commentUrl, TAG).enqueue(new Callback() {
             @Override
             public void onFailure(@NonNull Call call, @NonNull IOException e) {
                 if (!isCurrentSearch(seq)) return;
                 LOG.e("echo-danmaku builtin comment error: " + e.getMessage());
-                notifyNotFound(callback, seq);
+                retryBuiltinComment(baseUrl, title, episode, episodeMatch, callback, seq, retry, e);
             }
 
             @Override
@@ -397,10 +438,8 @@ public class DanmakuApi {
                     if (!response.isSuccessful()) throw new IOException("HTTP " + response.code());
                     String body = response.body() == null ? "" : response.body().string();
                     final String xml = commentJsonToXml(body);
-                    if (TextUtils.isEmpty(xml) || !isCurrentSearch(seq)) {
-                        notifyNotFound(callback, seq);
-                        return;
-                    }
+                    if (TextUtils.isEmpty(xml)) throw new IOException("未获取到弹幕内容");
+                    if (!isCurrentSearch(seq)) return;
                     handler.post(new Runnable() {
                         @Override
                         public void run() {
@@ -409,12 +448,27 @@ public class DanmakuApi {
                     });
                 } catch (Throwable th) {
                     LOG.e("echo-danmaku builtin comment parse error: " + th.getMessage());
-                    notifyNotFound(callback, seq);
+                    retryBuiltinComment(baseUrl, title, episode, episodeMatch, callback, seq, retry, th);
                 } finally {
                     response.close();
                 }
             }
         });
+    }
+
+    private static void retryBuiltinComment(String baseUrl, String title, String episode, EpisodeMatch episodeMatch,
+                                            SearchCallback callback, int seq, int retry, Throwable error) {
+        if (!isCurrentSearch(seq)) return;
+        if (retry < COMMENT_MAX_RETRY) {
+            handler.postDelayed(() -> {
+                if (isCurrentSearch(seq)) {
+                    loadBuiltinComment(baseUrl, title, episode, episodeMatch, callback, seq, retry + 1);
+                }
+            }, 350L);
+        } else {
+            LOG.e("echo-danmaku builtin comment retries exhausted: " + getErrorMessage(error));
+            notifyNotFound(callback, seq);
+        }
     }
 
     private static void notifyNotFound(SearchCallback callback, int seq) {
@@ -438,6 +492,12 @@ public class DanmakuApi {
     private static OkHttpClient searchClient() {
         return OkHttp.client(SEARCH_TIMEOUT).newBuilder()
                 .callTimeout(SEARCH_TIMEOUT, TimeUnit.MILLISECONDS)
+                .build();
+    }
+
+    private static OkHttpClient builtinClient() {
+        return OkHttp.client(BUILTIN_TIMEOUT).newBuilder()
+                .callTimeout(BUILTIN_TIMEOUT, TimeUnit.MILLISECONDS)
                 .build();
     }
 

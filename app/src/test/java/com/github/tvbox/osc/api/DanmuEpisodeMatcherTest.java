@@ -46,4 +46,26 @@ public class DanmuEpisodeMatcherTest {
         assertEquals(100, DanmuEpisodeMatcher.matchScore("某电影", "正片", "某电影 正片"));
         assertEquals(-1, DanmuEpisodeMatcher.matchScore("某电影", "正片", "某电影 花絮"));
     }
+
+    @Test
+    public void movieCandidatesFromOtherPlatformsRemainEligibleAndFullMovieRanksAboveClips() {
+        int fullMovie = DanmuEpisodeMatcher.matchScore(
+                "肖申克的救赎", "正片", "肖申克的救赎(1994)【电影】from tencent【qq】肖申克的救赎");
+        int clip = DanmuEpisodeMatcher.matchScore(
+                "肖申克的救赎", "正片", "肖申克的救赎(1994)【电影】from bilibili 片段1");
+        int preview = DanmuEpisodeMatcher.matchScore(
+                "肖申克的救赎", "正片", "肖申克的救赎(1994)【电影】from bilibili 【bilibili1】 PV 希望让你重获自由");
+
+        assertTrue(fullMovie > 0);
+        assertEquals(-1, clip);
+        assertEquals(-1, preview);
+    }
+
+    @Test
+    public void movieTitleFallbackDoesNotAllowWrongNumberedTvEpisode() {
+        assertEquals(-1, DanmuEpisodeMatcher.matchScore(
+                "余红旧事", "第1集", "余红旧事(2026)【电视剧】第2集"));
+        assertTrue(DanmuEpisodeMatcher.matchScore(
+                "霸王别姬", "第1集", "霸王别姬(1993)【电影】from tencent") > 0);
+    }
 }
