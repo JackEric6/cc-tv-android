@@ -10,7 +10,7 @@ class FeedbackSuggestionPolicyTest {
     fun knownCodesSelectConfiguredHomeSources() {
         assertEquals(HomeSourceSelection("guazi", "瓜子"), FeedbackSuggestionPolicy.selectionFor("7701"))
         assertEquals(HomeSourceSelection("xgzy", "西瓜"), FeedbackSuggestionPolicy.selectionFor("8801"))
-        assertEquals(HomeSourceSelection("jianpian", "荐片"), FeedbackSuggestionPolicy.selectionFor("9901"))
+        assertNull(FeedbackSuggestionPolicy.selectionFor("9901"))
     }
 
     @Test
