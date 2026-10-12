@@ -43,6 +43,7 @@ class HomeViewModel : ViewModel() {
         private const val GUAZI_RECOMMENDATION_SIZE = 5
         private const val GUAZI_RECOMMENDATION_DAY_KEY = "guazi_recommendation_day_v2"
         private const val GUAZI_RECOMMENDATION_IDS_KEY = "guazi_recommendation_ids_v2"
+        private val FEEDBACK_HOME_SOURCE_KEYS = setOf("guazi", "xgzy", "jianpian")
 
         internal const val HOME_PARTITION_CONCURRENCY = 8
 
@@ -62,6 +63,28 @@ class HomeViewModel : ViewModel() {
 
         internal fun partitionRequestKey(generation: Int, sortId: String): String =
             "$generation:$sortId"
+
+        internal fun homeSourcesForSelection(
+            sources: List<SourceBean>,
+            selectedKey: String?,
+        ): List<SourceBean> {
+            val preferred = sources.firstOrNull { it.key.equals(PREFERRED_HOME_SOURCE_KEY, true) }
+                ?: sources.firstOrNull { it.api?.contains(PREFERRED_HOME_SOURCE_KEY, true) == true }
+            val fallback = sources.firstOrNull { it.key.equals(FALLBACK_HOME_SOURCE_KEY, true) }
+                ?: sources.firstOrNull {
+                    it.key?.contains(FALLBACK_HOME_SOURCE_KEY, ignoreCase = true) == true ||
+                        it.api?.contains(FALLBACK_HOME_SOURCE_KEY, ignoreCase = true) == true
+                }
+            val selected = selectedKey
+                ?.takeIf { key -> FEEDBACK_HOME_SOURCE_KEYS.any { it.equals(key, true) } }
+                ?.let { key -> sources.firstOrNull { it.key.equals(key, true) && it.isChangeable } }
+            val home = selected ?: preferred
+            return if (home?.key.equals(PREFERRED_HOME_SOURCE_KEY, true)) {
+                listOfNotNull(home, fallback).distinctBy { it.key }
+            } else {
+                listOfNotNull(home)
+            }
+        }
     }
 
     /** 首页优先使用瓜子；瓜子首屏无有效内容时临时切换西瓜。 */
@@ -71,14 +94,8 @@ class HomeViewModel : ViewModel() {
 
     private fun fixedHomeSources(): List<SourceBean> {
         val sources = ApiConfig.get().getSourceBeanList()
-        val preferred = sources.firstOrNull { it.key.equals(PREFERRED_HOME_SOURCE_KEY, true) }
-            ?: sources.firstOrNull { it.api?.contains(PREFERRED_HOME_SOURCE_KEY, true) == true }
-        val fallback = sources.firstOrNull { it.key.equals(FALLBACK_HOME_SOURCE_KEY, true) }
-            ?: sources.firstOrNull {
-                it.key?.contains(FALLBACK_HOME_SOURCE_KEY, ignoreCase = true) == true ||
-                    it.api?.contains(FALLBACK_HOME_SOURCE_KEY, ignoreCase = true) == true
-            }
-        return listOfNotNull(preferred, fallback).distinctBy { it.key }
+        val selectedKey = ApiConfig.get().getHomeSourceBean().key
+        return homeSourcesForSelection(sources, selectedKey)
     }
 
     sealed interface PartitionState {

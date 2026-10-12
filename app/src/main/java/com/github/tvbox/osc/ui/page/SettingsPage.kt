@@ -294,7 +294,7 @@ fun SettingsPage(
                 SettingsCard(SettingsCardPosition.FIRST) {
                     SettingsRow(
                         title = "反馈建议",
-                        subtitle = "提交问题或使用反馈码切换首页源",
+                        subtitle = "提交问题描述",
                         iconRes = R.drawable.ic_settings_feedback,
                         onClick = { FeedbackSuggestionActivity.start(context) },
                     )

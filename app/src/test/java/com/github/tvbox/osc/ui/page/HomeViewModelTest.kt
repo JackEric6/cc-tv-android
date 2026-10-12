@@ -1,6 +1,7 @@
 package com.github.tvbox.osc.ui.page
 
 import com.github.tvbox.osc.ui.page.HomeViewModel.PartitionState
+import com.github.tvbox.osc.bean.SourceBean
 import com.github.tvbox.osc.bean.MovieSort
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
@@ -99,5 +100,23 @@ class HomeViewModelTest {
             HomeViewModel.partitionRequestKey(7, "drama") ==
                 HomeViewModel.partitionRequestKey(8, "drama"),
         )
+    }
+
+    @Test
+    fun homeSourcesForSelectionUsesSelectedFeedbackSourceAndKeepsGuaziFallback() {
+        val guazi = source("guazi")
+        val xigua = source("xgzy")
+        val jianpian = source("jianpian")
+        val sources = listOf(guazi, xigua, jianpian)
+
+        assertEquals(listOf(guazi, xigua), HomeViewModel.homeSourcesForSelection(sources, "guazi"))
+        assertEquals(listOf(xigua), HomeViewModel.homeSourcesForSelection(sources, "xgzy"))
+        assertEquals(listOf(jianpian), HomeViewModel.homeSourcesForSelection(sources, "jianpian"))
+        assertEquals(listOf(guazi, xigua), HomeViewModel.homeSourcesForSelection(sources, "unknown"))
+    }
+
+    private fun source(key: String) = SourceBean().apply {
+        setKey(key)
+        setChangeable(1)
     }
 }
