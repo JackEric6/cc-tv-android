@@ -4,6 +4,7 @@ Thumbs.db
 .DS_Store
 # Built application files
 *.apk
+*.idsig
 #*.aar
 *.ap_
 *.aab
