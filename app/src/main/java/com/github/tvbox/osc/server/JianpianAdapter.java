@@ -16,6 +16,10 @@ import fi.iki.elonen.NanoHTTPD;
 /** 把荐片 v2 搜索和详情直接转换为 TVBox 标准 CMS JSON。 */
 final class JianpianAdapter implements CmsAdapter {
     private static final String IMAGE_ORIGIN = "https://img.ypfbj.com";
+    private static final int PAGE_SIZE = 20;
+    private static final String[][] CATEGORIES = {
+            {"2", "电视剧"}, {"1", "电影"}, {"4", "综艺"}, {"3", "动漫"}
+    };
 
     @Override
     public String id() {
@@ -31,15 +35,48 @@ final class JianpianAdapter implements CmsAdapter {
             String ids = value(params, "ids");
             String keyword = value(params, "wd");
             if (!ids.isEmpty()) return jsonResponse(detail(ids.split(",", 2)[0].trim()));
-            if (!keyword.isEmpty()) return jsonResponse(search(keyword));
-            return jsonResponse(emptyPage("荐片"));
+            if (!keyword.isEmpty()) return jsonResponse(search(keyword, number(params, "pg", 1)));
+            String categoryId = value(params, "t");
+            if (!categoryId.isEmpty()) return jsonResponse(category(categoryId, number(params, "pg", 1)));
+            return jsonResponse(homeCatalog().toString());
         } catch (Throwable throwable) {
             return jsonResponse(error("荐片适配失败: " + safeMessage(throwable)));
         }
     }
 
-    private String search(String keyword) throws Exception {
-        JsonObject source = JianpianApi.get().search(keyword, 1, 20);
+    private String search(String keyword, int requestedPage) throws Exception {
+        int page = Math.max(1, requestedPage);
+        JsonObject source = JianpianApi.get().search(keyword, page, PAGE_SIZE);
+        return mapSearchResult(source, page, PAGE_SIZE).toString();
+    }
+
+    private String category(String categoryId, int requestedPage) throws Exception {
+        int page = Math.max(1, requestedPage);
+        if (categoryName(categoryId).isEmpty()) return page(new JsonArray(), page, 1, 0).toString();
+        JsonObject source = JianpianApi.get().search("热播", categoryId, page, PAGE_SIZE);
+        return mapSearchResult(source, page, PAGE_SIZE).toString();
+    }
+
+    static JsonObject homeCatalog() {
+        JsonObject root = new JsonObject();
+        JsonArray classes = new JsonArray();
+        for (String[] category : CATEGORIES) {
+            JsonObject item = new JsonObject();
+            item.addProperty("type_id", category[0]);
+            item.addProperty("type_name", category[1]);
+            classes.add(item);
+        }
+        root.add("class", classes);
+        root.addProperty("code", 1);
+        root.addProperty("page", 1);
+        root.addProperty("pagecount", 1);
+        root.addProperty("limit", PAGE_SIZE);
+        root.addProperty("total", 0);
+        root.add("list", new JsonArray());
+        return root;
+    }
+
+    static JsonObject mapSearchResult(JsonObject source, int requestedPage, int pageSize) {
         JsonArray raw = JianpianApi.array(source, "data");
         if (raw.size() == 0) raw = JianpianApi.array(source, "items");
         if (raw.size() == 0) raw = JianpianApi.array(source, "list");
@@ -50,8 +87,11 @@ final class JianpianAdapter implements CmsAdapter {
             JsonObject vod = mapVod(item);
             if (!string(vod, "vod_id").isEmpty()) list.add(vod);
         }
-        return page(list, intValue(source, "page", 1), 1,
-                intValue(source, "total", list.size())).toString();
+        int total = intValue(source, "total", list.size());
+        int normalizedPageSize = Math.max(1, pageSize);
+        int pageCount = Math.max(1, (Math.max(total, list.size()) + normalizedPageSize - 1)
+                / normalizedPageSize);
+        return page(list, requestedPage, pageCount, total);
     }
 
     private String detail(String id) throws Exception {
@@ -199,6 +239,22 @@ final class JianpianAdapter implements CmsAdapter {
         return params == null || params.get(key) == null ? "" : params.get(key).trim();
     }
 
+    private static int number(Map<String, String> params, String key, int fallback) {
+        try {
+            String value = value(params, key);
+            return value.isEmpty() ? fallback : Math.max(1, Integer.parseInt(value));
+        } catch (NumberFormatException ignored) {
+            return fallback;
+        }
+    }
+
+    private static String categoryName(String id) {
+        for (String[] category : CATEGORIES) {
+            if (category[0].equals(id)) return category[1];
+        }
+        return "";
+    }
+
     private static String string(JsonObject object, String key) {
         return JianpianApi.findString(object, key);
     }
@@ -227,7 +283,7 @@ final class JianpianAdapter implements CmsAdapter {
         return result.toString();
     }
 
-    private static String page(JsonArray list, int page, int pageCount, int total) {
+    private static JsonObject page(JsonArray list, int page, int pageCount, int total) {
         JsonObject root = new JsonObject();
         root.addProperty("code", list.size() > 0 ? 1 : 0);
         root.addProperty("page", Math.max(1, page));
@@ -235,11 +291,7 @@ final class JianpianAdapter implements CmsAdapter {
         root.addProperty("limit", 20);
         root.addProperty("total", Math.max(total, list.size()));
         root.add("list", list);
-        return root.toString();
-    }
-
-    private static String emptyPage(String message) {
-        return error(message);
+        return root;
     }
 
     private static String error(String message) {

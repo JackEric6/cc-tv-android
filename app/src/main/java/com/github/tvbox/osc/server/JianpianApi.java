@@ -29,9 +29,14 @@ final class JianpianApi {
     }
 
     JsonObject search(String keyword, int page, int pageSize) throws IOException {
+        return search(keyword, "88", page, pageSize);
+    }
+
+    JsonObject search(String keyword, String categoryId, int page, int pageSize) throws IOException {
         LinkedHashMap<String, String> query = new LinkedHashMap<>();
         query.put("key", keyword == null ? "" : keyword);
-        query.put("category_id", "88");
+        query.put("category_id", categoryId == null || categoryId.trim().isEmpty()
+                ? "88" : categoryId.trim());
         query.put("page", String.valueOf(Math.max(1, page)));
         query.put("pageSize", String.valueOf(Math.max(1, pageSize)));
         return getJson("/api/v2/search/videoV2", query);
