@@ -1,4 +1,4 @@
-# cc-tv
+# cc-tv-android
 
 **丛丛影视 Android 客户端**，基于 TVBoxOSC / TVBoxOS 相关开源项目持续开发，提供影视点播、直播、弹幕和离线下载功能。当前主线最低支持 Android 7.0（API 24）。
 
