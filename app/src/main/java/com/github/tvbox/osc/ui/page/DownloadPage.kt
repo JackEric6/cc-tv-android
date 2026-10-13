@@ -26,11 +26,25 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Replay
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -44,6 +58,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.style.TextOverflow
@@ -282,56 +297,36 @@ fun DownloadPage(
     AppTopBarScaffold(
         topBarStartInset = navStart,
         titleContent = {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("下载", style = MaterialTheme.typography.headlineSmall)
-                    Spacer(Modifier.width(20.dp))
-                    OverallDownloadSummary(
-                        context = context,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FilterChip(
-                        selected = section == 0,
-                        onClick = { section = 0 },
-                        label = { Text("正在下载 ${activeTasks.size}") },
-                    )
-                    FilterChip(
-                        selected = section == 1,
-                        onClick = { section = 1 },
-                        label = { Text("已完成 ${completedTasks.size}") },
-                    )
-                }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("下载", style = MaterialTheme.typography.headlineSmall)
+                Spacer(Modifier.width(16.dp))
+                OverallDownloadSummary(
+                    context = context,
+                    modifier = Modifier.weight(1f),
+                )
             }
         },
         actions = {
-            if (tasks.isNotEmpty()) {
+            if (sectionTasks.isNotEmpty()) {
                 if (editMode) {
-                    TextButton(onClick = {
-                        selectedIds = if (allSelected) selectedIds - sectionTaskIds else selectedIds + sectionTaskIds
-                    }) {
-                        Text(if (allSelected) "取消全选" else "全选")
-                    }
-                    TextButton(
-                        enabled = selectedIds.isNotEmpty(),
-                        onClick = { deleteConfirmationIds = selectedIds },
-                    ) {
-                        Text("删除${selectedIds.size.takeIf { it > 0 }?.let { "($it)" } ?: ""}")
-                    }
-                    TextButton(onClick = {
-                        editMode = false
-                        selectedIds = emptySet()
-                    }) {
-                        Text("完成")
-                    }
+                    DownloadActionIcon(
+                        icon = Icons.Filled.Done,
+                        label = "完成编辑",
+                        onClick = {
+                            editMode = false
+                            selectedIds = emptySet()
+                        },
+                    )
                 } else {
-                    TextButton(onClick = { editMode = true }) {
-                        Text("编辑")
-                    }
+                    DownloadActionIcon(
+                        icon = Icons.Filled.Edit,
+                        label = "编辑下载任务",
+                        onClick = { editMode = true },
+                        tonal = false,
+                    )
                 }
             }
         },
@@ -345,6 +340,21 @@ fun DownloadPage(
                 .padding(start = navStart, bottom = navBottom),
         ) {
             Spacer(Modifier.height(topPad))
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                FilterChip(
+                    selected = section == 0,
+                    onClick = { section = 0 },
+                    label = { Text("正在下载 ${activeTasks.size}", maxLines = 1) },
+                )
+                FilterChip(
+                    selected = section == 1,
+                    onClick = { section = 1 },
+                    label = { Text("已完成 ${completedTasks.size}", maxLines = 1) },
+                )
+            }
             if (sectionTasks.isEmpty()) {
                 LoadStateBox(
                     state = LoadState.Empty,
@@ -356,7 +366,7 @@ fun DownloadPage(
             } else {
                 if (editMode) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
@@ -366,17 +376,35 @@ fun DownloadPage(
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        OutlinedButton(
-                            enabled = selectedPausableTasks.isNotEmpty(),
-                            onClick = { vm.pauseAll(selectedPausableTasks) },
-                        ) {
-                            Text("暂停 ${selectedPausableTasks.size}")
+                        TextButton(onClick = {
+                            selectedIds = if (allSelected) selectedIds - sectionTaskIds else selectedIds + sectionTaskIds
+                        }) {
+                            Text(if (allSelected) "取消全选" else "全选")
                         }
-                        Button(
-                            enabled = selectedPausedTasks.isNotEmpty(),
-                            onClick = { vm.resumeAll(selectedPausedTasks) },
+                        DownloadActionIcon(
+                            icon = Icons.Filled.Close,
+                            label = "删除所选下载",
+                            enabled = selectedIds.isNotEmpty(),
+                            onClick = { deleteConfirmationIds = selectedIds },
+                            destructive = true,
+                        )
+                    }
+                    if (selectedPausableTasks.isNotEmpty() || selectedPausedTasks.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("继续 ${selectedPausedTasks.size}")
+                            if (selectedPausableTasks.isNotEmpty()) {
+                                OutlinedButton(onClick = { vm.pauseAll(selectedPausableTasks) }) {
+                                    Text("暂停 ${selectedPausableTasks.size}")
+                                }
+                            }
+                            if (selectedPausedTasks.isNotEmpty()) {
+                                Button(onClick = { vm.resumeAll(selectedPausedTasks) }) {
+                                    Text("继续 ${selectedPausedTasks.size}")
+                                }
+                            }
                         }
                     }
                 }
@@ -674,7 +702,7 @@ private fun DownloadTaskRow(
         }
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
         Text(
             text = currentTask.movieName.ifBlank { "未命名影片" },
@@ -724,11 +752,12 @@ private fun DownloadTaskRow(
                     color = if (currentTask.status == OfflineVideoCache.TaskStatus.COMPLETED) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
                 )
                 Spacer(Modifier.weight(1f))
-                if (active) {
-                    Text(
-                        text = if (visibleSpeed > 0) formatDownloadSpeed(visibleSpeed) else "等待速度",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                if (!editMode) {
+                    DownloadTaskActions(
+                        task = currentTask,
+                        vm = vm,
+                        onPlay = onPlay,
+                        onDeleteRequest = onDeleteRequest,
                     )
                 }
             }
@@ -737,13 +766,28 @@ private fun DownloadTaskRow(
                 visibleTotalBytes,
                 currentTask.estimatedTotalBytes,
             )
-            Text(
-                text = formatDownloadSize(visibleDownloadedBytes, visibleTotalBytes, estimatedTotalBytes),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = formatDownloadSize(visibleDownloadedBytes, visibleTotalBytes, estimatedTotalBytes),
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (active) {
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = if (visibleSpeed > 0) formatDownloadSpeed(visibleSpeed) else "等待速度",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                }
+            }
             if (active) {
                 val remainingSeconds = estimateRemainingSeconds(
                     visibleDownloadedBytes,
@@ -760,44 +804,114 @@ private fun DownloadTaskRow(
                 )
             }
         } else {
-            Text(
-                text = when (currentTask.status) {
-                    OfflineVideoCache.TaskStatus.COMPLETED -> "已完成"
-                    OfflineVideoCache.TaskStatus.PAUSED -> "已暂停"
-                    OfflineVideoCache.TaskStatus.CANCELLED -> "已取消"
-                    OfflineVideoCache.TaskStatus.FAILED -> "下载失败"
-                    else -> currentTask.status.name
-                },
-                style = MaterialTheme.typography.labelMedium,
-                color = if (currentTask.status == OfflineVideoCache.TaskStatus.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = when (currentTask.status) {
+                        OfflineVideoCache.TaskStatus.COMPLETED -> "已完成"
+                        OfflineVideoCache.TaskStatus.PAUSED -> "已暂停"
+                        OfflineVideoCache.TaskStatus.CANCELLED -> "已取消"
+                        OfflineVideoCache.TaskStatus.FAILED -> "下载失败"
+                        else -> currentTask.status.name
+                    },
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (currentTask.status == OfflineVideoCache.TaskStatus.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (!editMode) {
+                    DownloadTaskActions(
+                        task = currentTask,
+                        vm = vm,
+                        onPlay = onPlay,
+                        onDeleteRequest = onDeleteRequest,
+                    )
+                }
+            }
+        }
+        }
+    }
+}
+
+@Composable
+private fun DownloadTaskActions(
+    task: OfflineVideoCache.TaskSnapshot,
+    vm: DownloadViewModel,
+    onPlay: ((OfflineVideoCache.TaskSnapshot) -> Unit)?,
+    onDeleteRequest: () -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        when (task.status) {
+            OfflineVideoCache.TaskStatus.DOWNLOADING,
+            OfflineVideoCache.TaskStatus.QUEUED -> DownloadActionIcon(
+                icon = Icons.Filled.Pause,
+                label = "暂停下载",
+                onClick = { vm.pause(task) },
             )
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            when (currentTask.status) {
-                OfflineVideoCache.TaskStatus.DOWNLOADING,
-                OfflineVideoCache.TaskStatus.QUEUED -> {
-                    OutlinedButton(onClick = { vm.pause(currentTask) }) { Text("暂停") }
-                    OutlinedButton(onClick = { vm.cancel(currentTask) }) { Text("取消") }
-                }
-                OfflineVideoCache.TaskStatus.PAUSED -> {
-                    Button(onClick = { vm.resume(currentTask) }) { Text("继续") }
-                }
-                OfflineVideoCache.TaskStatus.FAILED,
-                OfflineVideoCache.TaskStatus.CANCELLED -> {
-                    Button(onClick = { vm.retry(currentTask) }) { Text("重试") }
-                }
-                OfflineVideoCache.TaskStatus.COMPLETED -> Unit
-            }
-            if (currentTask.status == OfflineVideoCache.TaskStatus.COMPLETED && onPlay != null) {
-                OutlinedButton(onClick = { onPlay(currentTask) }) { Text("播放") }
-            }
-            if (!editMode && currentTask.status != OfflineVideoCache.TaskStatus.DOWNLOADING
-                && currentTask.status != OfflineVideoCache.TaskStatus.QUEUED) {
-                OutlinedButton(onClick = onDeleteRequest) { Text("删除") }
+            OfflineVideoCache.TaskStatus.PAUSED -> DownloadActionIcon(
+                icon = Icons.Filled.PlayArrow,
+                label = "继续下载",
+                onClick = { vm.resume(task) },
+            )
+            OfflineVideoCache.TaskStatus.FAILED,
+            OfflineVideoCache.TaskStatus.CANCELLED -> DownloadActionIcon(
+                icon = Icons.Filled.Replay,
+                label = "重试下载",
+                onClick = { vm.retry(task) },
+            )
+            OfflineVideoCache.TaskStatus.COMPLETED -> if (onPlay != null) {
+                DownloadActionIcon(
+                    icon = Icons.Filled.PlayArrow,
+                    label = "播放",
+                    onClick = { onPlay(task) },
+                )
             }
         }
+        DownloadActionIcon(
+            icon = Icons.Filled.Close,
+            label = "删除下载及本地文件",
+            onClick = onDeleteRequest,
+            destructive = true,
+        )
+    }
+}
+
+@Composable
+private fun DownloadActionIcon(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    destructive: Boolean = false,
+    tonal: Boolean = true,
+) {
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+        tooltip = { PlainTooltip { Text(label) } },
+        state = rememberTooltipState(),
+    ) {
+        if (tonal) {
+            FilledTonalIconButton(
+                onClick = onClick,
+                enabled = enabled,
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = label,
+                    tint = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                )
+            }
+        } else {
+            IconButton(onClick = onClick, enabled = enabled) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = label,
+                    tint = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
