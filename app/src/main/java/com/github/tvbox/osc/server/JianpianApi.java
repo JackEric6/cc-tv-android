@@ -21,11 +21,22 @@ final class JianpianApi {
     private static final JianpianApi INSTANCE = new JianpianApi();
     private static final String USER_AGENT = "Mozilla/5.0 packageName:com.jp3.xg3";
     private static final long DISCOVERY_REFRESH_MILLIS = 10 * 60 * 1000L;
-    private static final long DISCOVERY_TIMEOUT_MILLIS = 8000L;
+    private static final long DISCOVERY_TIMEOUT_MILLIS = 2500L;
+    private static final long SEARCH_TIMEOUT_MILLIS = 12000L;
+    private static final long DETAIL_TIMEOUT_MILLIS = 18000L;
+    private static final long SEARCH_CACHE_TTL_MILLIS = 30 * 1000L;
+    private static final int SEARCH_CACHE_LIMIT = 24;
 
     private volatile String lastSuccessfulOrigin = "";
     private volatile String discoveredOrigins = "";
     private volatile long discoveryCheckedAt;
+    private final LinkedHashMap<String, SearchCacheEntry> searchCache =
+            new LinkedHashMap<String, SearchCacheEntry>(SEARCH_CACHE_LIMIT, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, SearchCacheEntry> eldest) {
+                    return size() > SEARCH_CACHE_LIMIT;
+                }
+            };
 
     private JianpianApi() {
     }
@@ -39,13 +50,24 @@ final class JianpianApi {
     }
 
     JsonObject search(String keyword, String categoryId, int page, int pageSize) throws IOException {
+        String normalizedKeyword = keyword == null ? "" : keyword.trim();
+        String normalizedCategory = categoryId == null || categoryId.trim().isEmpty()
+                ? "88" : categoryId.trim();
+        int normalizedPage = Math.max(1, page);
+        int normalizedPageSize = Math.max(1, pageSize);
+        String cacheKey = normalizedKeyword + "\u0000" + normalizedCategory + "\u0000"
+                + normalizedPage + "\u0000" + normalizedPageSize;
+        JsonObject cached = getCachedSearch(cacheKey);
+        if (cached != null) return cached;
+
         LinkedHashMap<String, String> query = new LinkedHashMap<>();
-        query.put("key", keyword == null ? "" : keyword);
-        query.put("category_id", categoryId == null || categoryId.trim().isEmpty()
-                ? "88" : categoryId.trim());
-        query.put("page", String.valueOf(Math.max(1, page)));
-        query.put("pageSize", String.valueOf(Math.max(1, pageSize)));
-        return getJson("/api/v2/search/videoV2", query);
+        query.put("key", normalizedKeyword);
+        query.put("category_id", normalizedCategory);
+        query.put("page", String.valueOf(normalizedPage));
+        query.put("pageSize", String.valueOf(normalizedPageSize));
+        JsonObject result = getJson("/api/v2/search/videoV2", query);
+        putCachedSearch(cacheKey, result);
+        return result;
     }
 
     JsonObject detail(String workId) throws IOException {
@@ -129,7 +151,9 @@ final class JianpianApi {
                 .header("User-Agent", USER_AGENT)
                 .get()
                 .build();
-        try (Response response = OkHttp.client(30000).newCall(request).execute()) {
+        long timeout = path.startsWith("/api/v2/search/")
+                ? SEARCH_TIMEOUT_MILLIS : DETAIL_TIMEOUT_MILLIS;
+        try (Response response = OkHttp.client(timeout).newCall(request).execute()) {
             if (response.body() == null) throw new IOException("荐片接口响应为空");
             String raw = response.body().string();
             if (!response.isSuccessful()) throw new ApiHttpException(response.code());
@@ -171,6 +195,42 @@ final class JianpianApi {
             return response.body().string();
         } catch (IOException ignored) {
             return "";
+        }
+    }
+
+    private JsonObject getCachedSearch(String key) {
+        long now = System.currentTimeMillis();
+        synchronized (searchCache) {
+            SearchCacheEntry entry = searchCache.get(key);
+            if (entry == null) return null;
+            if (now - entry.createdAt > SEARCH_CACHE_TTL_MILLIS) {
+                searchCache.remove(key);
+                return null;
+            }
+            try {
+                // 调用方只读当前结果，但返回副本可避免适配层未来修改缓存对象。
+                return JsonParser.parseString(entry.value.toString()).getAsJsonObject();
+            } catch (Throwable ignored) {
+                searchCache.remove(key);
+                return null;
+            }
+        }
+    }
+
+    private void putCachedSearch(String key, JsonObject value) {
+        if (value == null) return;
+        synchronized (searchCache) {
+            searchCache.put(key, new SearchCacheEntry(value, System.currentTimeMillis()));
+        }
+    }
+
+    private static final class SearchCacheEntry {
+        final JsonObject value;
+        final long createdAt;
+
+        SearchCacheEntry(JsonObject value, long createdAt) {
+            this.value = value;
+            this.createdAt = createdAt;
         }
     }
 

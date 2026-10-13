@@ -11,9 +11,9 @@ import java.util.Locale;
 final class JianpianOriginResolver {
     static final String DISCOVERY_URL =
             "https://ssopj-1462720388.cos.accelerate.myqcloud.com/config.txt";
-    // 5.0.60 官方 APK 的恢复配置还包含 hodpj.cc；旧三域名目前经常返回
-    // 404 或无法建立 TLS，漏掉该域名会让搜索在所有候选上直接失败。
-    static final String DEFAULT_SERVERS = "bdgnbrws.com,fvevfbr.com,swgsdfew.com,hodpj.cc";
+    // 当前官方配置常返回 cqjdn.com；放入本地首选列表，避免首次搜索必须等待配置
+    // 文件超时后才开始尝试接口。其余域名继续保留作故障切换。
+    static final String DEFAULT_SERVERS = "cqjdn.com,bdgnbrws.com,fvevfbr.com,swgsdfew.com,hodpj.cc";
     private static final String LEGACY_API_ORIGIN = "https://fan123.hzhnl.com";
 
     private JianpianOriginResolver() {
