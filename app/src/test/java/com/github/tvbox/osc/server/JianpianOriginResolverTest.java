@@ -24,16 +24,25 @@ public class JianpianOriginResolverTest {
                 "https://preferred.example", "https://discovered.example");
         assertEquals("https://preferred.example", origins.get(0));
         assertEquals("https://discovered.example", origins.get(1));
+        assertTrue(origins.contains("https://fan123.hzhnl.com"));
         assertTrue(origins.contains("https://jianpian.com"));
         assertTrue(origins.contains("https://jianpian25.com"));
         assertTrue(origins.contains("https://hodpj.cc"));
     }
 
     @Test
+    public void discoveredOriginIsFirstWhenNoWorkingOriginIsCached() {
+        List<String> origins = JianpianOriginResolver.candidates("", "cqjdn.com");
+        assertEquals("https://cqjdn.com", origins.get(0));
+    }
+
+    @Test
     public void failoverIncludesDeadEndpointResponses() {
+        assertTrue(JianpianOriginResolver.shouldFailover(403));
         assertTrue(JianpianOriginResolver.shouldFailover(404));
         assertTrue(JianpianOriginResolver.shouldFailover(503));
         assertFalse(JianpianOriginResolver.shouldFailover(401));
+        assertFalse(JianpianOriginResolver.shouldFailover(400));
         assertFalse(JianpianOriginResolver.shouldFailover(422));
     }
 }

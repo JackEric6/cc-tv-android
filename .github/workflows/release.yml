@@ -12,6 +12,11 @@ on:
         type: boolean
         required: false
         default: false
+      build_only:
+        description: '只构建未签名 APK artifact，供本机使用原签名证书签名；不创建 Release'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: write
@@ -74,6 +79,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Verify signing material
+        if: ${{ inputs.build_only != true }}
         run: |
           test -f .key/app-release.jks || { echo "::error::缺少 .key/app-release.jks"; exit 1; }
           for k in RELEASE_STORE_FILE RELEASE_KEY_ALIAS RELEASE_STORE_PASSWORD RELEASE_KEY_PASSWORD; do
@@ -81,29 +87,44 @@ jobs:
           done
           ls -l .key/app-release.jks
 
+      - name: Run Jianpian regression tests
+        if: ${{ inputs.build_only == true }}
+        run: |
+          ./gradlew :app:testDebugUnitTest \
+            --tests com.github.tvbox.osc.server.JianpianOriginResolverTest \
+            --tests com.github.tvbox.osc.server.JianpianAdapterTest \
+            --no-daemon
+
       - name: Build release APK
         run: ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Rename & verify APK
         id: apk
+        env:
+          VERSION: ${{ inputs.version }}
+          BUILD_ONLY: ${{ inputs.build_only }}
         run: |
           set -euo pipefail
-          SRC=app/build/outputs/apk/release/丛丛影视_release.apk
+          SRC="$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' | sort -V | tail -n1)"
           test -f "$SRC" || { echo "::error::未找到 $SRC"; exit 1; }
 
-          VERSION='${{ github.event.inputs.version }}'
-          OUT="丛丛影视_${VERSION}_arm64-v8a.apk"
+          if [ "$BUILD_ONLY" = "true" ]; then
+            OUT="cc-tv-${VERSION}-release-unsigned.apk"
+          else
+            OUT="丛丛影视_${VERSION}_arm64-v8a.apk"
+          fi
           cp "$SRC" "$OUT"
 
           APKSIGNER="$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools" -name apksigner -type f | sort -r | head -n1)"
           echo "apksigner: $APKSIGNER"
-          if [ -n "$APKSIGNER" ]; then
+          if [ "$BUILD_ONLY" != "true" ] && [ -n "$APKSIGNER" ]; then
             "$APKSIGNER" verify --print-certs "$OUT" || { echo "::error::APK 签名校验失败"; exit 1; }
           fi
           echo "size: $(du -h "$OUT" | cut -f1)"
           echo "path=$OUT" >> "$GITHUB_OUTPUT"
 
       - name: Upload APK to Release
+        if: ${{ inputs.build_only != true }}
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.event.inputs.version }}
@@ -115,3 +136,12 @@ jobs:
           body: ""
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload unsigned APK artifact
+        if: ${{ inputs.build_only == true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cc-tv-${{ github.event.inputs.version }}-release-unsigned
+          path: ${{ steps.apk.outputs.path }}
+          if-no-files-found: error
+          retention-days: 7

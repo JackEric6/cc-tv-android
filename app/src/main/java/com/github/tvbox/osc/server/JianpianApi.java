@@ -7,7 +7,9 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import okhttp3.HttpUrl;
@@ -17,9 +19,13 @@ import okhttp3.Response;
 /** 荐片公开 v2 API 客户端。详情响应已经包含可播放线路，不再依赖旧运行时加密协议。 */
 final class JianpianApi {
     private static final JianpianApi INSTANCE = new JianpianApi();
-    private static final String ORIGIN = "https://fan123.hzhnl.com";
-    private static final String REFERER = ORIGIN;
     private static final String USER_AGENT = "Mozilla/5.0 packageName:com.jp3.xg3";
+    private static final long DISCOVERY_REFRESH_MILLIS = 10 * 60 * 1000L;
+    private static final long DISCOVERY_TIMEOUT_MILLIS = 8000L;
+
+    private volatile String lastSuccessfulOrigin = "";
+    private volatile String discoveredOrigins = "";
+    private volatile long discoveryCheckedAt;
 
     private JianpianApi() {
     }
@@ -82,7 +88,35 @@ final class JianpianApi {
     }
 
     private JsonObject getJson(String path, Map<String, String> query) throws IOException {
-        HttpUrl.Builder builder = HttpUrl.get(ORIGIN + path).newBuilder();
+        List<String> origins = candidateOrigins();
+        List<String> failures = new ArrayList<>();
+        IOException lastFailure = null;
+        for (String origin : origins) {
+            try {
+                JsonObject result = getJson(origin, path, query);
+                lastSuccessfulOrigin = origin;
+                return result;
+            } catch (ApiHttpException exception) {
+                lastFailure = exception;
+                failures.add(HttpUrl.get(origin).host() + " HTTP " + exception.statusCode);
+                if (!JianpianOriginResolver.shouldFailover(exception.statusCode)) throw exception;
+                if (origin.equals(lastSuccessfulOrigin)) lastSuccessfulOrigin = "";
+            } catch (IOException exception) {
+                lastFailure = exception;
+                failures.add(HttpUrl.get(origin).host() + " " + exception.getMessage());
+                if (origin.equals(lastSuccessfulOrigin)) lastSuccessfulOrigin = "";
+            }
+        }
+        StringBuilder failureSummary = new StringBuilder();
+        for (String failure : failures) {
+            if (failureSummary.length() > 0) failureSummary.append(", ");
+            failureSummary.append(failure);
+        }
+        throw new IOException("荐片接口所有候选域名均请求失败: " + failureSummary, lastFailure);
+    }
+
+    private JsonObject getJson(String origin, String path, Map<String, String> query) throws IOException {
+        HttpUrl.Builder builder = HttpUrl.get(origin + path).newBuilder();
         if (query != null) {
             for (Map.Entry<String, String> entry : query.entrySet()) {
                 if (entry.getValue() != null) builder.addQueryParameter(entry.getKey(), entry.getValue());
@@ -91,20 +125,61 @@ final class JianpianApi {
         Request request = new Request.Builder()
                 .url(builder.build())
                 .header("Accept", "application/json")
-                .header("Referer", REFERER)
+                .header("Referer", origin + "/")
                 .header("User-Agent", USER_AGENT)
                 .get()
                 .build();
         try (Response response = OkHttp.client(30000).newCall(request).execute()) {
             if (response.body() == null) throw new IOException("荐片接口响应为空");
             String raw = response.body().string();
-            if (!response.isSuccessful()) throw new IOException("荐片接口 HTTP " + response.code());
-            JsonElement parsed = JsonParser.parseString(raw);
-            return parsed.isJsonObject() ? parsed.getAsJsonObject() : new JsonObject();
-        } catch (IOException exception) {
-            throw exception;
+            if (!response.isSuccessful()) throw new ApiHttpException(response.code());
+            try {
+                JsonElement parsed = JsonParser.parseString(raw);
+                return parsed.isJsonObject() ? parsed.getAsJsonObject() : new JsonObject();
+            } catch (Throwable throwable) {
+                throw new IOException("荐片接口返回了无效 JSON", throwable);
+            }
         } catch (Throwable throwable) {
+            if (throwable instanceof IOException) throw (IOException) throwable;
             throw new IOException("荐片接口请求失败: " + throwable.getMessage(), throwable);
+        }
+    }
+
+    private List<String> candidateOrigins() {
+        long now = System.currentTimeMillis();
+        if (now - discoveryCheckedAt >= DISCOVERY_REFRESH_MILLIS) {
+            synchronized (this) {
+                now = System.currentTimeMillis();
+                if (now - discoveryCheckedAt >= DISCOVERY_REFRESH_MILLIS) {
+                    discoveredOrigins = discoverOrigins();
+                    discoveryCheckedAt = now;
+                }
+            }
+        }
+        return JianpianOriginResolver.candidates(lastSuccessfulOrigin, discoveredOrigins);
+    }
+
+    private String discoverOrigins() {
+        Request request = new Request.Builder()
+                .url(JianpianOriginResolver.DISCOVERY_URL)
+                .header("Accept", "text/plain, */*")
+                .header("User-Agent", USER_AGENT)
+                .get()
+                .build();
+        try (Response response = OkHttp.client(DISCOVERY_TIMEOUT_MILLIS).newCall(request).execute()) {
+            if (!response.isSuccessful() || response.body() == null) return "";
+            return response.body().string();
+        } catch (IOException ignored) {
+            return "";
+        }
+    }
+
+    private static final class ApiHttpException extends IOException {
+        final int statusCode;
+
+        ApiHttpException(int statusCode) {
+            super("荐片接口 HTTP " + statusCode);
+            this.statusCode = statusCode;
         }
     }
 

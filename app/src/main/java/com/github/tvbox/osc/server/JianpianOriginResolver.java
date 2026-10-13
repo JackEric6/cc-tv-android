@@ -14,6 +14,7 @@ final class JianpianOriginResolver {
     // 5.0.60 官方 APK 的恢复配置还包含 hodpj.cc；旧三域名目前经常返回
     // 404 或无法建立 TLS，漏掉该域名会让搜索在所有候选上直接失败。
     static final String DEFAULT_SERVERS = "bdgnbrws.com,fvevfbr.com,swgsdfew.com,hodpj.cc";
+    private static final String LEGACY_API_ORIGIN = "https://fan123.hzhnl.com";
 
     private JianpianOriginResolver() {
     }
@@ -35,6 +36,7 @@ final class JianpianOriginResolver {
         add(result, preferred);
         result.addAll(parseDiscovery(discovered));
         for (String server : DEFAULT_SERVERS.split(",")) add(result, "https://" + server);
+        add(result, LEGACY_API_ORIGIN);
         add(result, JianpianCrypto.BASE_URL);
         // 官网会把旧入口跳转到 jianpian25.com；保留它只作为最后的兼容探测，
         // 这样配置切换后不会因为旧缓存而永远停在失效入口。
@@ -43,7 +45,7 @@ final class JianpianOriginResolver {
     }
 
     static boolean shouldFailover(int statusCode) {
-        return statusCode == 404 || statusCode == 408 || statusCode == 425
+        return statusCode == 403 || statusCode == 404 || statusCode == 408 || statusCode == 425
                 || statusCode == 429 || statusCode >= 500;
     }
 
