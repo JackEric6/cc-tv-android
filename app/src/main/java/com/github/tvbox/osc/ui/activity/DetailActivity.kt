@@ -24,6 +24,7 @@ import com.github.tvbox.osc.ui.player.PlayContainer
 import com.github.tvbox.osc.ui.theme.CcTvTheme
 import com.github.tvbox.osc.ui.theme.AppThemeState
 import com.github.tvbox.osc.util.MusicSettings
+import com.github.tvbox.osc.util.OfflineMovieMetadata
 import com.github.tvbox.osc.util.OfflineVideoCache
 import com.github.tvbox.osc.util.PermissionHelper
 import com.github.tvbox.osc.util.thunder.Jianpian
@@ -178,7 +179,9 @@ class DetailActivity : BaseActivity(), PageHost {
                 info.name.orEmpty(),
                 episode.name ?: "第${index + 1}集",
                 sourceName,
+                OfflineMovieMetadata.encode(info, episode.name ?: "第${index + 1}集"),
             )
+            OfflineVideoCache.prefetchPoster(this, sourceKey, info.id.orEmpty(), info.pic.orEmpty())
             OfflineVideoCache.prefetch(
                 this,
                 sourceKey,

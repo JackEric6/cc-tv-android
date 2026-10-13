@@ -85,6 +85,8 @@ import com.github.tvbox.osc.util.HawkConfig
 import com.github.tvbox.osc.util.HistoryHelper
 import com.github.tvbox.osc.util.HistoryMerge
 import com.github.tvbox.osc.util.KV
+import com.github.tvbox.osc.util.OfflineMovieMetadata
+import com.github.tvbox.osc.util.OfflineVideoCache
 import com.github.tvbox.osc.util.PlaybackProgress
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -316,7 +318,26 @@ fun HistoryPage(
                             fadeOutSpec = spring(stiffness = Spring.StiffnessMediumLow),
                         ),
                         onClick = {
-                            context.jumpToDetail(item.id, item.sourceKey, item.name, item.pic)
+                            if (item.sourceKey == OfflineVideoCache.OFFLINE_SOURCE_KEY) {
+                                val task = OfflineVideoCache.findCompletedTaskForHistory(context, item.id)
+                                if (task == null) {
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "本地缓存文件不存在",
+                                        android.widget.Toast.LENGTH_SHORT,
+                                    ).show()
+                                } else {
+                                    launchCachedTask(
+                                        context,
+                                        task,
+                                        OfflineMovieMetadata.encode(item, item.playNote),
+                                        item.name,
+                                        item.playNote,
+                                    )
+                                }
+                            } else {
+                                context.jumpToDetail(item.id, item.sourceKey, item.name, item.pic)
+                            }
                         },
                         onLongClick = { deleteTarget = item },
                     )

@@ -86,6 +86,8 @@ public final class OfflineVideoCache {
     private static final long EARLY_SEGMENT_ESTIMATE_SAMPLE_MS = 10_000L;
     private static final int EARLY_SEGMENT_ESTIMATE_SAMPLES = 3;
     private static final int MIN_TRANSFORM_ESTIMATE_PROGRESS = 20;
+    private static final long MAX_POSTER_FILE_BYTES = 16L * 1024L * 1024L;
+    public static final String OFFLINE_SOURCE_KEY = "offline";
     /** Shared cap for independent offline downloads across direct, HLS, and transformed media. */
     static final int MAX_ACTIVE_DOWNLOADS = 5;
     private static final Semaphore DOWNLOAD_SLOTS =
@@ -100,6 +102,12 @@ public final class OfflineVideoCache {
         thread.setDaemon(true);
         return thread;
     });
+    private static final ExecutorService METADATA_EXECUTOR = Executors.newFixedThreadPool(2, r -> {
+        Thread thread = new Thread(r, "cc-tv-offline-metadata");
+        thread.setDaemon(true);
+        return thread;
+    });
+    private static final Set<String> POSTER_PREFETCHES = ConcurrentHashMap.newKeySet();
     private static final ConcurrentHashMap<String, DownloadHandle> ACTIVE = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, DownloadHandle> ALL_ACTIVE = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, ProgressState> PROGRESS_STATES = new ConcurrentHashMap<>();
@@ -1795,6 +1803,22 @@ public final class OfflineVideoCache {
         }
     }
 
+    public static String offlineHistoryId(String path) {
+        return OFFLINE_SOURCE_KEY + ":" + Integer.toString((path == null ? "" : path).hashCode(), 16);
+    }
+
+    public static TaskSnapshot findCompletedTaskForHistory(Context context, String historyId) {
+        if (TextUtils.isEmpty(historyId)) return null;
+        for (TaskSnapshot task : getTaskSnapshots(context)) {
+            if (task.status == TaskStatus.COMPLETED
+                    && TextUtils.equals(historyId, offlineHistoryId(task.targetPath))) {
+                File target = new File(task.targetPath);
+                if (isFinalCacheFile(target)) return task;
+            }
+        }
+        return null;
+    }
+
     /**
      * P2P 桥接的 HTTP 读取速度不等于原生任务速度：播放器/下载器可能在等待下一段
      * 数据时没有回调，但 libp2p 已经把 .ybbk 写大。读取快照前补一次原生字节数，
@@ -1879,6 +1903,14 @@ public final class OfflineVideoCache {
     public static void prepareTaskMetadata(Context context, String sourceKey, String movieId,
                                            String playFlag, int episodeIndex, String remoteUrl,
                                            String movieName, String episodeName, String sourceName) {
+        prepareTaskMetadata(context, sourceKey, movieId, playFlag, episodeIndex, remoteUrl,
+                movieName, episodeName, sourceName, "");
+    }
+
+    public static void prepareTaskMetadata(Context context, String sourceKey, String movieId,
+                                           String playFlag, int episodeIndex, String remoteUrl,
+                                           String movieName, String episodeName, String sourceName,
+                                           String movieMetadataJson) {
         if (context == null) return;
         ensureTasksLoaded(context);
         remoteUrl = normalizeRemoteUrl(remoteUrl);
@@ -1907,10 +1939,88 @@ public final class OfflineVideoCache {
             task.movieName = nonEmpty(movieName, task.movieId);
             task.episodeName = nonEmpty(episodeName, defaultEpisodeName(task.episodeIndex));
             task.sourceName = nonEmpty(sourceName, task.sourceKey);
+            if (!TextUtils.isEmpty(movieMetadataJson)) task.movieMetadataJson = movieMetadataJson;
             task.updatedAt = System.currentTimeMillis();
             persistTasksLocked();
         }
         notifyListeners(context);
+    }
+
+    public static void prefetchPoster(Context context, String sourceKey, String movieId,
+                                      String posterUrl) {
+        if (context == null || TextUtils.isEmpty(posterUrl)
+                || !(posterUrl.startsWith("http://") || posterUrl.startsWith("https://"))) return;
+        Context appContext = context.getApplicationContext();
+        if (appContext == null) appContext = context;
+        final Context cacheContext = appContext;
+        String cacheKey = MD5.string2MD5(safe(sourceKey) + "|" + safe(movieId) + "|" + posterUrl);
+        File directory = new File(cacheContext.getFilesDir(), "offline-metadata/posters");
+        File target = new File(directory, cacheKey + posterExtension(posterUrl));
+        if (target.isFile() && target.length() > 0L && target.length() <= MAX_POSTER_FILE_BYTES) {
+            updatePosterPath(cacheContext, sourceKey, movieId, target);
+            return;
+        }
+        if (!POSTER_PREFETCHES.add(cacheKey)) return;
+        METADATA_EXECUTOR.execute(() -> {
+            File temporary = new File(directory, target.getName() + ".part");
+            try {
+                if (!directory.isDirectory() && !directory.mkdirs()) return;
+                Request request = new Request.Builder().url(posterUrl).get().build();
+                try (Response response = downloadClient().newCall(request).execute()) {
+                    if (!response.isSuccessful() || response.body() == null) return;
+                    String contentType = response.header("Content-Type", "");
+                    if (!TextUtils.isEmpty(contentType)
+                            && !contentType.toLowerCase(Locale.ROOT).startsWith("image/")) return;
+                    long contentLength = response.body().contentLength();
+                    if (contentLength > MAX_POSTER_FILE_BYTES) return;
+                    long copied = 0L;
+                    byte[] buffer = new byte[16 * 1024];
+                    try (InputStream input = response.body().byteStream();
+                         OutputStream output = new BufferedOutputStream(new FileOutputStream(temporary))) {
+                        int read;
+                        while ((read = input.read(buffer)) != -1) {
+                            copied += read;
+                            if (copied > MAX_POSTER_FILE_BYTES) throw new IOException("poster too large");
+                            output.write(buffer, 0, read);
+                        }
+                    }
+                    if (copied <= 0L || !temporary.isFile()) return;
+                    if (target.exists() && !target.delete()) return;
+                    if (temporary.renameTo(target)) updatePosterPath(cacheContext, sourceKey, movieId, target);
+                }
+            } catch (Throwable ignored) {
+                LOG.i("offline-poster-prefetch-failed");
+            } finally {
+                if (temporary.exists()) temporary.delete();
+                POSTER_PREFETCHES.remove(cacheKey);
+            }
+        });
+    }
+
+    private static String posterExtension(String url) {
+        String path = url.split("[?#]", 2)[0];
+        int slash = path.lastIndexOf('/');
+        int dot = path.lastIndexOf('.');
+        if (dot <= slash || dot == path.length() - 1) return ".img";
+        String extension = path.substring(dot + 1).toLowerCase(Locale.ROOT);
+        return extension.matches("jpg|jpeg|png|webp|gif|avif") ? "." + extension : ".img";
+    }
+
+    private static void updatePosterPath(Context context, String sourceKey, String movieId, File poster) {
+        ensureTasksLoaded(context);
+        boolean changed = false;
+        synchronized (TASK_LOCK) {
+            for (TaskRecord task : TASKS.values()) {
+                if (TextUtils.equals(task.sourceKey, sourceKey)
+                        && TextUtils.equals(task.movieId, movieId)
+                        && !TextUtils.equals(task.posterPath, poster.getAbsolutePath())) {
+                    task.posterPath = poster.getAbsolutePath();
+                    changed = true;
+                }
+            }
+            if (changed) persistTasksLocked();
+        }
+        if (changed) notifyListeners(context);
     }
 
     public static void addTaskListener(Context context, TaskListener listener) {
@@ -2214,6 +2324,8 @@ public final class OfflineVideoCache {
         private final int episodeIndex;
         private final String remoteUrl;
         private final String targetPath;
+        private final String movieMetadataJson;
+        private final String posterPath;
         private final TaskStatus status;
         private final long downloadedBytes;
         private final long totalBytes;
@@ -2234,6 +2346,8 @@ public final class OfflineVideoCache {
             episodeIndex = task.episodeIndex;
             remoteUrl = task.remoteUrl;
             targetPath = task.targetPath;
+            movieMetadataJson = task.movieMetadataJson;
+            posterPath = task.posterPath;
             status = task.status;
             downloadedBytes = task.downloadedBytes;
             totalBytes = task.totalBytes;
@@ -2254,6 +2368,8 @@ public final class OfflineVideoCache {
         public int getEpisodeIndex() { return episodeIndex; }
         public String getRemoteUrl() { return remoteUrl; }
         public String getTargetPath() { return targetPath; }
+        public String getMovieMetadataJson() { return movieMetadataJson; }
+        public String getPosterPath() { return posterPath; }
         public TaskStatus getStatus() { return status; }
         public long getDownloadedBytes() { return downloadedBytes; }
         public long getTotalBytes() { return totalBytes; }
@@ -2281,6 +2397,8 @@ public final class OfflineVideoCache {
         int episodeIndex;
         String remoteUrl = "";
         String targetPath = "";
+        String movieMetadataJson = "";
+        String posterPath = "";
         Map<String, String> headers = new HashMap<>();
         TaskStatus status = TaskStatus.QUEUED;
         long downloadedBytes;
@@ -2306,6 +2424,8 @@ public final class OfflineVideoCache {
                 json.put("episodeIndex", episodeIndex);
                 json.put("remoteUrl", remoteUrl);
                 json.put("targetPath", targetPath);
+                json.put("movieMetadataJson", movieMetadataJson);
+                json.put("posterPath", posterPath);
                 json.put("status", status.name());
                 json.put("downloadedBytes", downloadedBytes);
                 json.put("totalBytes", totalBytes);
@@ -2340,6 +2460,8 @@ public final class OfflineVideoCache {
             task.episodeIndex = json.optInt("episodeIndex", 0);
             task.remoteUrl = json.optString("remoteUrl", "");
             task.targetPath = json.optString("targetPath", "");
+            task.movieMetadataJson = json.optString("movieMetadataJson", "");
+            task.posterPath = json.optString("posterPath", "");
             try { task.status = TaskStatus.valueOf(json.optString("status", "FAILED")); }
             catch (Throwable ignored) { task.status = TaskStatus.FAILED; }
             task.downloadedBytes = json.optLong("downloadedBytes", 0);

@@ -21,6 +21,8 @@ import com.github.tvbox.osc.player.PlaybackSession
 import com.github.tvbox.osc.ui.player.PlayContainer
 import com.github.tvbox.osc.util.EpisodeTotals
 import com.github.tvbox.osc.util.LOG
+import com.github.tvbox.osc.util.OfflineMovieMetadata
+import com.github.tvbox.osc.util.OfflineVideoCache
 import com.github.tvbox.osc.util.SearchHelper
 import com.github.tvbox.osc.viewmodel.SourceViewModel
 import com.lzy.okgo.OkGo
@@ -223,7 +225,7 @@ class DetailViewModel : ViewModel() {
         val file = File(path)
         if (!file.isFile || file.length() <= 0L) return false
 
-        vodId = "offline:" + path.hashCode().toString(16)
+        vodId = OfflineVideoCache.offlineHistoryId(path)
         vodName = title
         vodPicture = ""
         sourceKey = OFFLINE_SOURCE_KEY
@@ -244,9 +246,17 @@ class DetailViewModel : ViewModel() {
         }
         val info = VodInfo().apply {
             setVideo(video)
+            OfflineMovieMetadata.applyTo(
+                this,
+                intent?.getStringExtra("offlineMetadata"),
+                intent?.getStringExtra("offlinePosterPath"),
+            )
+            id = OfflineVideoCache.offlineHistoryId(file.absolutePath)
+            name = this.name?.takeIf { it.isNotBlank() } ?: title
             sourceKey = OFFLINE_SOURCE_KEY
             playFlag = "本地"
             playIndex = 0
+            playNote = episode
             playerCfg = ""
         }
         vodInfo = info

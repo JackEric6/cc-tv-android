@@ -25,6 +25,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ContainedLoadingIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -39,6 +40,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,7 +71,13 @@ import kotlin.math.ceil
 import kotlin.math.roundToLong
 
 /** 在下载页和主界面下载标签复用同一套本地缓存播放入口。 */
-fun launchCachedTask(context: Context, task: OfflineVideoCache.TaskSnapshot) {
+fun launchCachedTask(
+    context: Context,
+    task: OfflineVideoCache.TaskSnapshot,
+    fallbackMetadataJson: String? = null,
+    fallbackTitle: String? = null,
+    fallbackEpisodeName: String? = null,
+) {
     val file = task.targetPath.takeIf { it.isNotBlank() }?.let(::File)
     if (file == null || !file.isFile || file.length() <= 0L) {
         Toast.makeText(context, "本地缓存文件不存在", Toast.LENGTH_SHORT).show()
@@ -78,8 +86,13 @@ fun launchCachedTask(context: Context, task: OfflineVideoCache.TaskSnapshot) {
     try {
         context.startActivity(Intent(context, DetailActivity::class.java).apply {
             putExtra("offlinePath", file.absolutePath)
-            putExtra("offlineTitle", task.movieName.ifBlank { "本地缓存" })
-            putExtra("offlineEpisode", task.episodeName.ifBlank { "本地视频" })
+            putExtra("offlineTitle", fallbackTitle?.takeIf { it.isNotBlank() }
+                ?: task.movieName.ifBlank { "本地缓存" })
+            putExtra("offlineEpisode", fallbackEpisodeName?.takeIf { it.isNotBlank() }
+                ?: task.episodeName.ifBlank { "本地视频" })
+            val metadata = task.movieMetadataJson.ifBlank { fallbackMetadataJson.orEmpty() }
+            if (metadata.isNotBlank()) putExtra("offlineMetadata", metadata)
+            if (task.posterPath.isNotBlank()) putExtra("offlinePosterPath", task.posterPath)
             if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         })
     } catch (_: Throwable) {
@@ -219,18 +232,27 @@ fun DownloadPage(
     val tasks by vm.tasks.collectAsState()
     val listState = rememberLazyListState()
     var previousHeadId by remember { mutableStateOf<String?>(null) }
+    var section by rememberSaveable { mutableIntStateOf(0) }
     var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var editMode by remember { mutableStateOf(false) }
     var deleteConfirmationIds by remember { mutableStateOf<Set<String>?>(null) }
     val taskIds = tasks.mapTo(linkedSetOf()) { it.id }
-    val allSelected = taskIds.isNotEmpty() && selectedIds.containsAll(taskIds)
-    val selectedTasks = tasks.filter { it.id in selectedIds }
+    val activeTasks = tasks.filter { downloadSectionFor(it.status) == 0 }
+    val completedTasks = tasks.filter { downloadSectionFor(it.status) == 1 }
+    val sectionTasks = if (section == 0) activeTasks else completedTasks
+    val sectionTaskIds = sectionTasks.mapTo(linkedSetOf()) { it.id }
+    val allSelected = sectionTaskIds.isNotEmpty() && selectedIds.containsAll(sectionTaskIds)
+    val selectedTasks = sectionTasks.filter { it.id in selectedIds }
     val selectedPausableTasks = selectedTasks.filter { canPauseDownload(it.status) }
     val selectedPausedTasks = selectedTasks.filter { canResumeDownload(it.status) }
 
     LaunchedEffect(taskIds) {
         selectedIds = selectedIds.intersect(taskIds)
         if (taskIds.isEmpty()) editMode = false
+    }
+    LaunchedEffect(section) {
+        selectedIds = emptySet()
+        listState.scrollToItem(0)
     }
 
     DisposableEffect(vm, context) {
@@ -245,9 +267,9 @@ fun DownloadPage(
     }
     // 新任务始终插入列表头部。LazyColumn 为保持原可见项可能把新增项留在
     // 视口上方，当前页检测到队首变化时回到第 0 项，确保用户立即看到新任务。
-    LaunchedEffect(tasks.firstOrNull()?.id, isCurrentTab) {
+    LaunchedEffect(sectionTasks.firstOrNull()?.id, isCurrentTab) {
         if (!isCurrentTab) return@LaunchedEffect
-        val headId = tasks.firstOrNull()?.id
+        val headId = sectionTasks.firstOrNull()?.id
         if (previousHeadId != null && headId != previousHeadId) {
             listState.scrollToItem(0)
         }
@@ -260,23 +282,37 @@ fun DownloadPage(
     AppTopBarScaffold(
         topBarStartInset = navStart,
         titleContent = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("下载", style = MaterialTheme.typography.headlineSmall)
-                Spacer(Modifier.width(20.dp))
-                OverallDownloadSummary(
-                    context = context,
-                    modifier = Modifier.weight(1f),
-                )
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("下载", style = MaterialTheme.typography.headlineSmall)
+                    Spacer(Modifier.width(20.dp))
+                    OverallDownloadSummary(
+                        context = context,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(
+                        selected = section == 0,
+                        onClick = { section = 0 },
+                        label = { Text("正在下载 ${activeTasks.size}") },
+                    )
+                    FilterChip(
+                        selected = section == 1,
+                        onClick = { section = 1 },
+                        label = { Text("已完成 ${completedTasks.size}") },
+                    )
+                }
             }
         },
         actions = {
             if (tasks.isNotEmpty()) {
                 if (editMode) {
                     TextButton(onClick = {
-                        selectedIds = if (allSelected) emptySet() else taskIds
+                        selectedIds = if (allSelected) selectedIds - sectionTaskIds else selectedIds + sectionTaskIds
                     }) {
                         Text(if (allSelected) "取消全选" else "全选")
                     }
@@ -309,10 +345,10 @@ fun DownloadPage(
                 .padding(start = navStart, bottom = navBottom),
         ) {
             Spacer(Modifier.height(topPad))
-            if (tasks.isEmpty()) {
+            if (sectionTasks.isEmpty()) {
                 LoadStateBox(
                     state = LoadState.Empty,
-                    emptyText = "暂无下载任务",
+                    emptyText = if (section == 0) "暂无正在下载的任务" else "暂无已完成的下载",
                     errorText = "",
                     retryText = "",
                     modifier = Modifier.fillMaxSize(),
@@ -350,7 +386,7 @@ fun DownloadPage(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    items(tasks, key = { it.id }) { task ->
+                    items(sectionTasks, key = { it.id }) { task ->
                         DownloadTaskRow(
                             task = task,
                             vm = vm,
@@ -897,6 +933,9 @@ internal fun downloadTabFor(status: OfflineVideoCache.TaskStatus): Int = when (s
     OfflineVideoCache.TaskStatus.FAILED,
     OfflineVideoCache.TaskStatus.CANCELLED -> 2
 }
+
+internal fun downloadSectionFor(status: OfflineVideoCache.TaskStatus): Int =
+    if (status == OfflineVideoCache.TaskStatus.COMPLETED) 1 else 0
 
 internal fun initialDisplayedPercent(
     status: OfflineVideoCache.TaskStatus,
