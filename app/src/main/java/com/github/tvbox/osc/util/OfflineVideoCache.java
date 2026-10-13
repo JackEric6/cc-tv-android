@@ -83,6 +83,8 @@ public final class OfflineVideoCache {
     private static final long MAX_FILE_BYTES = 4L * 1024L * 1024L * 1024L;
     private static final long MIN_SEGMENT_ESTIMATE_SAMPLE_MS = 30_000L;
     private static final int MIN_SEGMENT_ESTIMATE_SAMPLES = 6;
+    private static final long EARLY_SEGMENT_ESTIMATE_SAMPLE_MS = 10_000L;
+    private static final int EARLY_SEGMENT_ESTIMATE_SAMPLES = 3;
     private static final int MIN_TRANSFORM_ESTIMATE_PROGRESS = 20;
     /** Shared cap for independent offline downloads across direct, HLS, and transformed media. */
     static final int MAX_ACTIVE_DOWNLOADS = 5;
@@ -90,6 +92,11 @@ public final class OfflineVideoCache {
             new Semaphore(MAX_ACTIVE_DOWNLOADS, true);
     private static final ExecutorService DOWNLOAD_EXECUTOR = Executors.newFixedThreadPool(MAX_ACTIVE_DOWNLOADS, r -> {
         Thread thread = new Thread(r, "cc-tv-offline-video");
+        thread.setDaemon(true);
+        return thread;
+    });
+    private static final ExecutorService SIZE_PROBE_EXECUTOR = Executors.newFixedThreadPool(2, r -> {
+        Thread thread = new Thread(r, "cc-tv-offline-size-probe");
         thread.setDaemon(true);
         return thread;
     });
@@ -362,6 +369,7 @@ public final class OfflineVideoCache {
                 long preflightTotal = -1;
                 long rangeProbeTotal = -1;
                 boolean preflightAttempted = false;
+                boolean sizeProbeScheduled = false;
                 boolean copied = false;
                 boolean downloadStarted = false;
                 String lastDownloadError = "下载未完成";
@@ -460,6 +468,8 @@ public final class OfflineVideoCache {
                                 : (bodyLength > 0 ? (append ? offset + bodyLength : bodyLength)
                                 : preflightTotal);
                         if (responseTotal > 0) expectedTotal = responseTotal;
+                        boolean shouldProbeTotal = responseTotal <= 0 && !sizeProbeScheduled;
+                        if (shouldProbeTotal) sizeProbeScheduled = true;
                         if (isJianpianDownloadUrl(normalizedRemoteUrl)) {
                             // P2P 原生缓存可能已经先于本地 HTTP 复制器写入 .ybbk；
                             // 不能用普通新任务路径把这部分真实进度清零。
@@ -470,6 +480,9 @@ public final class OfflineVideoCache {
                             markDownloading(context, key, expectedTotal, handle);
                         }
                         downloadStarted = true;
+                        if (shouldProbeTotal) {
+                            probeTotalBytesAsync(context, key, normalizedRemoteUrl, safeHeaders, handle);
+                        }
                         if (append && offset > 0) {
                             markProgress(context, key, offset, expectedTotal, true, handle);
                         }
@@ -738,6 +751,7 @@ public final class OfflineVideoCache {
             headerBuilder.set("Range", "bytes=0-0");
             builder.headers(headerBuilder.build());
             call = downloadClient().newCall(builder.build());
+            call.timeout().timeout(8L, TimeUnit.SECONDS);
             handle.registerCall(call);
             try (Response response = call.execute()) {
                 if (response.code() != 206 || response.body() == null) return -1L;
@@ -771,14 +785,35 @@ public final class OfflineVideoCache {
             headerBuilder.set("Accept-Encoding", "identity");
             builder.headers(headerBuilder.build());
             call = downloadClient().newCall(builder.build());
+            call.timeout().timeout(8L, TimeUnit.SECONDS);
             handle.registerCall(call);
             try (Response response = call.execute()) {
+                if (!response.isSuccessful()) return -1L;
                 return parsePositiveContentLength(response.header("Content-Length", ""));
             }
         } catch (Throwable ignored) {
             return -1L;
         } finally {
             if (call != null) handle.unregisterCall(call);
+        }
+    }
+
+    private static void probeTotalBytesAsync(Context context, String id, String url,
+                                             Map<String, String> headers,
+                                             DownloadHandle handle) {
+        if (context == null || TextUtils.isEmpty(id) || TextUtils.isEmpty(url)) return;
+        try {
+            SIZE_PROBE_EXECUTOR.execute(() -> {
+                if (handle.isCancelled() || !isCurrentHandle(id, handle)) return;
+                long total = probeRangeLength(url, headers, handle);
+                if (total <= 0L && !handle.isCancelled()) {
+                    total = probeHeadLength(url, headers, handle);
+                }
+                if (total > 0L && !handle.isCancelled() && isCurrentHandle(id, handle)) {
+                    markProgress(context, id, -1L, total, true, handle);
+                }
+            });
+        } catch (RuntimeException ignored) {
         }
     }
 
@@ -1430,6 +1465,30 @@ public final class OfflineVideoCache {
         notifyListeners(context);
     }
 
+    static void markTotalBytesEstimate(Context context, String id, long downloadedBytes,
+                                       long candidateTotal, @Nullable DownloadHandle handle) {
+        if (context == null || TextUtils.isEmpty(id) || candidateTotal <= 0L) return;
+        if (!isCurrentHandle(id, handle)) return;
+        ensureTasksLoaded(context);
+        boolean changed = false;
+        synchronized (TASK_LOCK) {
+            TaskRecord task = TASKS.get(id);
+            if (task == null || !isCurrentHandle(id, handle) || task.totalBytes > 0L
+                    || task.status == TaskStatus.PAUSED || task.status == TaskStatus.CANCELLED
+                    || task.status == TaskStatus.FAILED || task.status == TaskStatus.COMPLETED) return;
+            long observed = Math.max(task.downloadedBytes, Math.max(0L, downloadedBytes));
+            long updatedEstimate = reconcileEstimatedTotalBytes(
+                    task.estimatedTotalBytes, candidateTotal, observed);
+            if (updatedEstimate != task.estimatedTotalBytes) {
+                task.estimatedTotalBytes = updatedEstimate;
+                task.updatedAt = Math.max(System.currentTimeMillis(), task.updatedAt + 1L);
+                persistTasksLocked();
+                changed = true;
+            }
+        }
+        if (changed) notifyListeners(context);
+    }
+
     static void markSegmentProgressByEstimate(Context context, String id, int completedSegments,
                                               int totalSegments, long downloadedBytes,
                                               long completedDurationMs, long totalDurationMs,
@@ -1454,8 +1513,11 @@ public final class OfflineVideoCache {
                     Math.max(0L, completedDurationMs * 100L / totalDurationMs));
             task.progressPercent = Math.max(task.progressPercent, safePercent);
             if (task.totalBytes <= 0L && candidateTotal > 0L) {
-                task.estimatedTotalBytes = lockEstimatedTotalBytes(
+                long updatedEstimate = reconcileEstimatedTotalBytes(
                         task.estimatedTotalBytes, candidateTotal, downloadedBytes);
+                if (updatedEstimate != task.estimatedTotalBytes) {
+                    task.estimatedTotalBytes = updatedEstimate;
+                }
             }
             task.updatedAt = Math.max(System.currentTimeMillis(), task.updatedAt + 1L);
             persistTasksLocked();
@@ -1466,6 +1528,24 @@ public final class OfflineVideoCache {
     static long estimateTotalBytesFromSegmentSamples(long[] segmentBytes,
                                                     long[] segmentDurationsMs,
                                                     long totalDurationMs) {
+        return estimateTotalBytesFromSegmentSamples(segmentBytes, segmentDurationsMs,
+                totalDurationMs, MIN_SEGMENT_ESTIMATE_SAMPLES,
+                MIN_SEGMENT_ESTIMATE_SAMPLE_MS);
+    }
+
+    static long estimateEarlyTotalBytesFromSegmentSamples(long[] segmentBytes,
+                                                          long[] segmentDurationsMs,
+                                                          long totalDurationMs) {
+        return estimateTotalBytesFromSegmentSamples(segmentBytes, segmentDurationsMs,
+                totalDurationMs, EARLY_SEGMENT_ESTIMATE_SAMPLES,
+                EARLY_SEGMENT_ESTIMATE_SAMPLE_MS);
+    }
+
+    private static long estimateTotalBytesFromSegmentSamples(long[] segmentBytes,
+                                                             long[] segmentDurationsMs,
+                                                             long totalDurationMs,
+                                                             int minSamples,
+                                                             long minSampleDurationMs) {
         if (segmentBytes == null || segmentDurationsMs == null
                 || segmentBytes.length != segmentDurationsMs.length
                 || totalDurationMs <= 0L) return -1L;
@@ -1477,8 +1557,7 @@ public final class OfflineVideoCache {
             rates[count++] = segmentBytes[i] / (double) segmentDurationsMs[i];
             sampledDurationMs += segmentDurationsMs[i];
         }
-        if (count < MIN_SEGMENT_ESTIMATE_SAMPLES
-                || sampledDurationMs < MIN_SEGMENT_ESTIMATE_SAMPLE_MS) return -1L;
+        if (count < minSamples || sampledDurationMs < minSampleDurationMs) return -1L;
         Arrays.sort(rates, 0, count);
         double median = count % 2 == 0
                 ? (rates[count / 2 - 1] + rates[count / 2]) / 2.0
@@ -1514,6 +1593,17 @@ public final class OfflineVideoCache {
         if (previousEstimate > 0L) return Math.max(previousEstimate, observed);
         if (candidateEstimate <= 0L) return -1L;
         return Math.max(candidateEstimate, observed);
+    }
+
+    static long reconcileEstimatedTotalBytes(long previousEstimate, long candidateEstimate,
+                                             long observedBytes) {
+        long observed = Math.max(0L, observedBytes);
+        if (candidateEstimate <= 0L) {
+            return previousEstimate > 0L ? Math.max(previousEstimate, observed) : -1L;
+        }
+        long candidate = Math.max(candidateEstimate, observed);
+        if (previousEstimate <= 0L) return candidate;
+        return Math.max(observed, previousEstimate + (candidate - previousEstimate) / 2L);
     }
 
     /** Media3 Transformer 只提供百分比；从输出样本估算总量，同时保留网络字节速度统计。 */
@@ -1552,11 +1642,10 @@ public final class OfflineVideoCache {
             long outputBytes = outputPart != null && outputPart.isFile() ? outputPart.length() : 0L;
             long candidateEstimate = estimateTotalBytesFromProgress(outputBytes, safePercent);
             if (task.totalBytes <= 0L && candidateEstimate > 0L) {
-                long previousEstimate = task.estimatedTotalBytes;
-                long stableEstimate = lockEstimatedTotalBytes(
-                        previousEstimate, candidateEstimate, outputBytes);
-                if (stableEstimate != previousEstimate) {
-                    task.estimatedTotalBytes = stableEstimate;
+                long updatedEstimate = reconcileEstimatedTotalBytes(
+                        task.estimatedTotalBytes, candidateEstimate, outputBytes);
+                if (updatedEstimate != task.estimatedTotalBytes) {
+                    task.estimatedTotalBytes = updatedEstimate;
                     changed = true;
                 }
             }

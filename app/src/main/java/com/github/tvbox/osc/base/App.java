@@ -82,6 +82,10 @@ public class App extends Application {
             KV.put(HawkConfig.API_URL, HawkConfig.DEFAULT_API_URL);
         }
         KV.put(HawkConfig.DEFAULT_API_MIGRATION, true);
+        // 首次安装默认使用瓜子首页;已有安装的首页选择保持不变。
+        if (!KV.contains(HawkConfig.HOME_API)) {
+            KV.put(HawkConfig.HOME_API, "guazi");
+        }
         KV.put(HawkConfig.PLAYER_IS_LIVE, false);
         if (!KV.contains(HawkConfig.M3U8_PURIFY)) {
             KV.put(HawkConfig.M3U8_PURIFY, HawkConfig.M3U8_PURIFY_DEFAULT);

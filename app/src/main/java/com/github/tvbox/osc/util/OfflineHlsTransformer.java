@@ -425,7 +425,7 @@ final class OfflineHlsTransformer {
             }
         }
         if (totalDurationMs > 0L && completedDurationMs > 0L && completedBytes > 0L) {
-            long estimate = OfflineVideoCache.estimateTotalBytesFromSegmentSamples(
+            long estimate = OfflineVideoCache.estimateEarlyTotalBytesFromSegmentSamples(
                     segmentBytes, segmentDurationsMs, totalDurationMs);
             OfflineVideoCache.markSegmentProgressByEstimate(context, key, completedSegments,
                     segments.size(), downloadedBytes, completedDurationMs, totalDurationMs,
@@ -434,6 +434,33 @@ final class OfflineHlsTransformer {
             OfflineVideoCache.markSegmentProgress(context, key, completedSegments,
                     segments.size(), downloadedBytes, handle);
         }
+    }
+
+    private static void reportSegmentSizeEstimate(Context context, String key,
+                                                   List<MediaSegment> segments,
+                                                   List<File> segmentFiles,
+                                                   AtomicLongArray segmentExpected,
+                                                   long downloadedBytes,
+                                                   OfflineVideoCache.DownloadHandle handle) {
+        long totalDurationMs = 0L;
+        long[] segmentBytes = new long[segments.size()];
+        long[] segmentDurationsMs = new long[segments.size()];
+        for (int i = 0; i < segments.size(); i++) {
+            MediaSegment segment = segments.get(i);
+            if (segment.durationMs <= 0L) return;
+            totalDurationMs += segment.durationMs;
+            segmentDurationsMs[i] = segment.durationMs;
+            long expected = segmentExpected.get(i);
+            if (expected > 0L) {
+                segmentBytes[i] = expected;
+            } else {
+                File file = segmentFiles.get(i);
+                if (isReusableSegment(file)) segmentBytes[i] = file.length();
+            }
+        }
+        long estimate = OfflineVideoCache.estimateEarlyTotalBytesFromSegmentSamples(
+                segmentBytes, segmentDurationsMs, totalDurationMs);
+        OfflineVideoCache.markTotalBytesEstimate(context, key, downloadedBytes, estimate, handle);
     }
 
     static boolean isDirectTsPlaylist(String playlistUrl, String playlist) {
@@ -536,8 +563,8 @@ final class OfflineHlsTransformer {
                     final File segmentFile = segmentFiles.get(segmentIndex);
                     futures.add(completionService.submit(() -> {
                         File result = downloadSegment(context, key, segment, segmentFile, headers,
-                            handle, downloaded, total, segmentDownloaded, segmentExpected, calls,
-                            failureReasons);
+                            handle, downloaded, total, segmentDownloaded, segmentExpected,
+                            segments, segmentFiles, calls, failureReasons);
                     if (result != null && result.isFile() && result.length() > 0) {
                         OfflineVideoCache.markProgress(context, key, downloaded.get(), total.get(),
                                 allSegmentLengthsKnown(segmentExpected), handle);
@@ -574,8 +601,8 @@ final class OfflineHlsTransformer {
                     final File segmentFile = segmentFiles.get(segmentIndex);
                     futures.add(completionService.submit(() -> {
                         File nextResult = downloadSegment(context, key, segment, segmentFile, headers,
-                                handle, downloaded, total, segmentDownloaded, segmentExpected, calls,
-                                failureReasons);
+                                handle, downloaded, total, segmentDownloaded, segmentExpected,
+                                segments, segmentFiles, calls, failureReasons);
                         if (nextResult != null && nextResult.isFile() && nextResult.length() > 0) {
                             OfflineVideoCache.markProgress(context, key, downloaded.get(), total.get(),
                                     allSegmentLengthsKnown(segmentExpected), handle);
@@ -656,6 +683,7 @@ final class OfflineHlsTransformer {
                                         AtomicLong downloaded, AtomicLong total,
                                         AtomicLongArray segmentDownloaded,
                                         AtomicLongArray segmentExpected,
+                                        List<MediaSegment> segments, List<File> segmentFiles,
                                         List<okhttp3.Call> calls,
                                         ConcurrentHashMap<Integer, String> failureReasons) {
         String lastError = "";
@@ -731,6 +759,8 @@ final class OfflineHlsTransformer {
                                 break;
                             }
                         }
+                        reportSegmentSizeEstimate(context, key, segments, segmentFiles,
+                                segmentExpected, downloaded.get(), handle);
                     }
                     long localBytes = localOffset;
                     boolean first = true;

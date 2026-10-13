@@ -361,6 +361,7 @@ private fun MainContent() {
                 ) {
                     AppTab.entries.forEachIndexed { index, tab ->
                         NavigationRailItem(
+                            modifier = Modifier.weight(1f),
                             selected = pagerState.currentPage == index,
                             onClick = { selectTab(index) },
                             icon = { Icon(painterResource(tab.icon), contentDescription = tab.label) },
