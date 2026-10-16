@@ -30,6 +30,7 @@ import com.github.tvbox.osc.event.RefreshEvent
 import com.github.tvbox.osc.ui.components.AppTopBarScaffold
 import com.github.tvbox.osc.ui.components.TopBarActionBox
 import com.github.tvbox.osc.util.FeedbackSuggestionPolicy
+import com.github.tvbox.osc.util.AdultContentFilter
 import com.github.tvbox.osc.util.HawkConfig
 import com.github.tvbox.osc.util.KV
 import java.text.SimpleDateFormat
@@ -85,6 +86,13 @@ fun FeedbackSuggestionScreen(onNavigateBack: () -> Unit) {
                 onClick = {
                     val content = feedback.trim()
                     if (content.isEmpty()) return@Button
+
+                    if (FeedbackSuggestionPolicy.disablesAdultFilter(content)) {
+                        AdultContentFilter.disableForSession()
+                        feedback = ""
+                        submissionMessage = "18+ 内容过滤已关闭，退出软件后将恢复开启"
+                        return@Button
+                    }
 
                     val selection = FeedbackSuggestionPolicy.selectionFor(content)
                     if (selection != null) {

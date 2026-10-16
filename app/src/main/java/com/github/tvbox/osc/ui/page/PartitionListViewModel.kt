@@ -7,6 +7,7 @@ import com.github.tvbox.osc.bean.AbsXml
 import com.github.tvbox.osc.bean.Movie
 import com.github.tvbox.osc.bean.MovieSort
 import com.github.tvbox.osc.viewmodel.SourceViewModel
+import com.github.tvbox.osc.util.AdultContentFilter
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -148,7 +149,7 @@ class PartitionListVM : ViewModel() {
     }
 
     private fun applyResult(page: Int, abs: AbsXml?) {
-        val videos = abs?.movie?.videoList ?: emptyList()
+        val videos = AdultContentFilter.filter(abs?.movie?.videoList ?: emptyList())
         val maxPage = abs?.movie?.pagecount ?: 0
         val cur = ui.value
         ui.value = when {

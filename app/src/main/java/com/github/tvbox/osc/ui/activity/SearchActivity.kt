@@ -87,6 +87,7 @@ import com.github.tvbox.osc.ui.activity.PartitionListActivity
 import com.github.tvbox.osc.ui.page.ManageActionIcon
 import com.github.tvbox.osc.ui.page.openVodCardOrDetail
 import com.github.tvbox.osc.util.HawkConfig
+import com.github.tvbox.osc.util.AdultContentFilter
 import com.github.tvbox.osc.util.SearchHelper
 import com.github.tvbox.osc.util.SearchSettings
 import com.github.tvbox.osc.util.HistoryHelper
@@ -140,6 +141,8 @@ class SearchViewModel : ViewModel() {
         val videos: List<Movie.Video>,
         val arrivedAt: Int = Int.MAX_VALUE,
         val sourceKeys: Set<String> = setOf(sourceKey),
+        /** 成人过滤完成前保留原始结果，避免跨源标记晚到时无法回溯。 */
+        val rawVideos: List<Movie.Video> = videos,
     )
 
     val results = MutableStateFlow<List<SourceResult>>(emptyList())
@@ -225,23 +228,22 @@ class SearchViewModel : ViewModel() {
                     .distinctBy { videoDisplayIdentity(it) }
                 SourceResult(
                     sourceKey = first.sourceKey,
-                    sourceName = "暴风",
+                    sourceName = first.sourceName,
                     state = if (group.any { it.state == ResultState.Pending }) ResultState.Pending else ResultState.Done,
                     videos = videos,
                     arrivedAt = first.arrivedAt,
                     sourceKeys = sourceKeys,
+                    rawVideos = group.flatMap { it.rawVideos }
+                        .distinctBy { videoDisplayIdentity(it) },
                 )
             }
         }
 
         private fun displayGroupKey(result: SourceResult): String {
             val key = result.sourceKey.trim().lowercase(java.util.Locale.ROOT)
-            val name = result.sourceName.trim()
-            return if (key == "bfzy" || key == "cms_baofeng" || name.contains("暴风")) {
-                "source:baofeng"
-            } else {
-                "source:$key"
-            }
+            val name = result.sourceName.trim().replace(Regex("\\s+"), "")
+            // 同名源（例如两个都显示为“百度”）共用一个左侧标签，结果合并到同一组。
+            return if (name.isNotEmpty()) "name:${name.lowercase(java.util.Locale.ROOT)}" else "source:$key"
         }
 
         private fun videoDisplayIdentity(video: Movie.Video): String {
@@ -560,7 +562,10 @@ class SearchViewModel : ViewModel() {
                     }
                 }.awaitAll()
             }
-            if (myToken == token) running.value = false
+            if (myToken == token) {
+                applyAdultFilter()
+                running.value = false
+            }
         }
     }
 
@@ -584,12 +589,35 @@ class SearchViewModel : ViewModel() {
     }
 
     private fun updateResult(sourceKey: String, videos: List<Movie.Video>) {
+        // 过滤开启时先暂存结果，等待本轮所有站点完成后再做跨源同名判断，
+        // 避免带成人分类的晚到站点让同名条目先短暂显示。
+        val visible = if (AdultContentFilter.isEnabled()) emptyList() else videos
         results.value = results.value.map {
             if (it.sourceKey == sourceKey) {
-                SourceResult(sourceKey, it.sourceName, ResultState.Done, videos, ++arriveSeq)
+                SourceResult(
+                    sourceKey,
+                    it.sourceName,
+                    ResultState.Done,
+                    visible,
+                    ++arriveSeq,
+                    rawVideos = videos,
+                )
             } else {
                 it
             }
+        }
+    }
+
+    private fun applyAdultFilter() {
+        val allVideos = results.value.flatMap { it.rawVideos }
+        val adultTitleKeys = AdultContentFilter.collectAdultTitleKeys(allVideos)
+        results.value = results.value.map { result ->
+            val filtered = AdultContentFilter.filterByAdultTitles(
+                result.rawVideos,
+                adultTitleKeys,
+                searchedTitle.value,
+            )
+            result.copy(videos = filtered)
         }
     }
 
@@ -818,6 +846,7 @@ private fun SearchIdleContent(
                             word = word,
                             onClick = { onSearch(word) },
                             onLongClick = { onRemoveHistory(word) },
+                            onDelete = { onRemoveHistory(word) },
                         )
                     }
                 }

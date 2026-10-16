@@ -19,4 +19,11 @@ class FeedbackSuggestionPolicyTest {
         assertNull(FeedbackSuggestionPolicy.selectionFor("问题反馈"))
         assertNull(FeedbackSuggestionPolicy.selectionFor(""))
     }
+
+    @Test
+    fun adultFilterCodeIsOnlyTheTrimmedExactCommand() {
+        assertEquals(true, FeedbackSuggestionPolicy.disablesAdultFilter(" 4848\n"))
+        assertEquals(false, FeedbackSuggestionPolicy.disablesAdultFilter("48480"))
+        assertEquals(false, FeedbackSuggestionPolicy.disablesAdultFilter("问题 4848"))
+    }
 }
