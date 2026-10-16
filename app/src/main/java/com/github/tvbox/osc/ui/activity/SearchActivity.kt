@@ -143,6 +143,8 @@ class SearchViewModel : ViewModel() {
         val sourceKeys: Set<String> = setOf(sourceKey),
         /** 成人过滤完成前保留原始结果，避免跨源标记晚到时无法回溯。 */
         val rawVideos: List<Movie.Video> = videos,
+        /** 成人识别还要覆盖因海报/精确匹配被展示层丢弃的源条目。 */
+        val adultCandidates: List<Movie.Video> = rawVideos,
     )
 
     val results = MutableStateFlow<List<SourceResult>>(emptyList())
@@ -234,6 +236,8 @@ class SearchViewModel : ViewModel() {
                     arrivedAt = first.arrivedAt,
                     sourceKeys = sourceKeys,
                     rawVideos = group.flatMap { it.rawVideos }
+                        .distinctBy { videoDisplayIdentity(it) },
+                    adultCandidates = group.flatMap { it.adultCandidates }
                         .distinctBy { videoDisplayIdentity(it) },
                 )
             }
@@ -585,10 +589,14 @@ class SearchViewModel : ViewModel() {
             searchedTitle.value,
             allowPosterless = SearchHelper.allowsPosterlessSearchResult(sourceKey),
         )
-        updateResult(sourceKey, videos)
+        updateResult(sourceKey, videos, data.movie?.videoList.orEmpty())
     }
 
-    private fun updateResult(sourceKey: String, videos: List<Movie.Video>) {
+    private fun updateResult(
+        sourceKey: String,
+        videos: List<Movie.Video>,
+        adultCandidates: List<Movie.Video> = videos,
+    ) {
         // 过滤开启时先暂存结果，等待本轮所有站点完成后再做跨源同名判断，
         // 避免带成人分类的晚到站点让同名条目先短暂显示。
         val visible = if (AdultContentFilter.isEnabled()) emptyList() else videos
@@ -601,6 +609,7 @@ class SearchViewModel : ViewModel() {
                     visible,
                     ++arriveSeq,
                     rawVideos = videos,
+                    adultCandidates = adultCandidates,
                 )
             } else {
                 it
@@ -609,7 +618,7 @@ class SearchViewModel : ViewModel() {
     }
 
     private fun applyAdultFilter() {
-        val allVideos = results.value.flatMap { it.rawVideos }
+        val allVideos = results.value.flatMap { it.adultCandidates }
         val adultTitleKeys = AdultContentFilter.collectAdultTitleKeys(allVideos)
         results.value = results.value.map { result ->
             val filtered = AdultContentFilter.filterByAdultTitles(
