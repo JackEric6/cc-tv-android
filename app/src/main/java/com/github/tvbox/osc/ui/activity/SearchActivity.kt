@@ -173,6 +173,8 @@ class SearchViewModel : ViewModel() {
     companion object {
         private val SEARCH_SEQ = java.util.concurrent.atomic.AtomicInteger(0)
 
+        /** 聚合搜索最多等待 3 秒，避免异常源拖住整轮结果展示。 */
+        private const val SEARCH_AGGREGATE_TIMEOUT_MS = 3_000L
         private const val SEARCH_TIMEOUT_MS = 30_000L
         private const val CZ4K_SEARCH_TIMEOUT_MS = 75_000L
 
@@ -528,43 +530,50 @@ class SearchViewModel : ViewModel() {
         }
         running.value = true
         searchJob = scope.launch {
-            supervisorScope {
-                sources.map { bean ->
-                    async {
-                        var completed = false
-                        try {
-                            val timeout = if (bean.key == "cz4k") {
-                                CZ4K_SEARCH_TIMEOUT_MS
-                            } else {
-                                SEARCH_TIMEOUT_MS
-                            }
-                            completed = withTimeoutOrNull(timeout) {
-                                semaphore.withPermit {
-                                    if (myToken == token) {
-                                        val done = kotlinx.coroutines.CompletableDeferred<Unit>()
-                                        pendingSources[bean.key] = done
-                                        try {
-                                            withContext(Dispatchers.IO) {
-                                                searchCaller.getSearch(bean.key, t, tokenStr)
-                                            }
-                                            done.await()
-                                        } finally {
-                                            pendingSources.remove(bean.key, done)
-                                        }
-                                    }
-                                    true
+            val allSourcesCompleted = withTimeoutOrNull(SEARCH_AGGREGATE_TIMEOUT_MS) {
+                supervisorScope {
+                    sources.map { bean ->
+                        async {
+                            var completed = false
+                            try {
+                                val timeout = if (bean.key == "cz4k") {
+                                    CZ4K_SEARCH_TIMEOUT_MS
+                                } else {
+                                    SEARCH_TIMEOUT_MS
                                 }
-                            } ?: false
-                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                            throw cancelled
-                        } catch (ignored: Throwable) {
-                            LOG.d("SearchViewModel", "source search failed: ${bean.key}")
+                                completed = withTimeoutOrNull(timeout) {
+                                    semaphore.withPermit {
+                                        if (myToken == token) {
+                                            val done = kotlinx.coroutines.CompletableDeferred<Unit>()
+                                            pendingSources[bean.key] = done
+                                            try {
+                                                withContext(Dispatchers.IO) {
+                                                    searchCaller.getSearch(bean.key, t, tokenStr)
+                                                }
+                                                done.await()
+                                            } finally {
+                                                pendingSources.remove(bean.key, done)
+                                            }
+                                        }
+                                        true
+                                    }
+                                } ?: false
+                            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                throw cancelled
+                            } catch (ignored: Throwable) {
+                                LOG.d("SearchViewModel", "source search failed: ${bean.key}")
+                            }
+                            if (!completed && myToken == token) {
+                                markSourceDone(bean.key)
+                            }
                         }
-                        if (!completed && myToken == token) {
-                            markSourceDone(bean.key)
-                        }
-                    }
-                }.awaitAll()
+                    }.awaitAll()
+                }
+            } != null
+            if (!allSourcesCompleted && myToken == token) {
+                // 截止时间到后立即结束未返回源，保留已经到达的结果并继续统一过滤。
+                sources.forEach { markSourceDone(it.key) }
+                LOG.d("SearchViewModel", "aggregate search timed out after ${SEARCH_AGGREGATE_TIMEOUT_MS}ms")
             }
             if (myToken == token) {
                 applyAdultFilter()
