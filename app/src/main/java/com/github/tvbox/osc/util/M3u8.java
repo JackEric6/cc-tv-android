@@ -5,12 +5,18 @@ import static com.github.tvbox.osc.util.RegexUtils.getPattern;
 import androidx.media3.common.util.UriUtil;
 
 import java.math.BigDecimal;
+import java.text.ParsePosition;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.TimeZone;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -261,6 +267,7 @@ public class M3u8 {
         String line = resolveContent(tsUrlPre, m3u8Content);
         List<String> ads = getRegex(tsUrlPre);
         if (ads != null && !ads.isEmpty()) line = clean(line, ads);
+        line = cleanAdDateRangeSegments(line);
         line = cleanCommonAdMarkers(line);
         if (hasEndList(line) && line.contains(TAG_DISCONTINUITY)) {
             line = cleanDecimalPrecisionGroups(line);
@@ -268,6 +275,190 @@ public class M3u8 {
             line = cleanUniformDurationGroups(line);
         }
         return cleanDiscontinuityGroups(line);
+    }
+
+    /** 根据 EXT-X-DATERANGE 的广告时间区间删除关联切片，覆盖无广告 URL 特征的广告插入。 */
+    private static String cleanAdDateRangeSegments(String content) {
+        String normalized = content.replace("\r\n", "\n").replace('\r', '\n');
+        String[] lines = normalized.split("\n", -1);
+        List<TimedSegment> segments = new ArrayList<>();
+        List<String> leading = new ArrayList<>();
+        List<String> pending = new ArrayList<>();
+        Map<String, AdDateRange> ranges = new HashMap<>();
+        List<TimeInterval> scteIntervals = new ArrayList<>();
+        Double scteAdStart = null;
+        double elapsed = 0;
+        Long programDateTime = null;
+
+        for (String raw : lines) {
+            String item = raw.trim();
+            if (item.startsWith("#EXT-X-PROGRAM-DATE-TIME:")) {
+                programDateTime = parseIsoDate(item.substring(item.indexOf(':') + 1));
+            }
+
+            if (item.regionMatches(true, 0, TAG_DATERANGE + ":", 0, TAG_DATERANGE.length() + 1)) {
+                Map<String, String> attributes = parseAttributeList(item);
+                mergeAdDateRange(ranges, attributes, elapsed);
+                if (attributes.containsKey("SCTE35-OUT") && scteAdStart == null) {
+                    scteAdStart = elapsed;
+                }
+                if (attributes.containsKey("SCTE35-IN") && scteAdStart != null) {
+                    if (elapsed > scteAdStart) scteIntervals.add(new TimeInterval(scteAdStart, elapsed));
+                    scteAdStart = null;
+                }
+            }
+
+            if (!item.isEmpty() && !item.startsWith("#")) {
+                double duration = 0;
+                for (String prior : pending) {
+                    if (getExtInfValueStart(prior) >= 0) {
+                        duration = parseExtInfDuration(prior).doubleValue();
+                        break;
+                    }
+                }
+                segments.add(new TimedSegment(
+                        new ArrayList<>(pending), raw, elapsed, duration, programDateTime));
+                pending.clear();
+                elapsed += duration;
+                if (programDateTime != null) programDateTime += Math.round(duration * 1000.0);
+            } else if (segments.isEmpty() && pending.isEmpty()
+                    && (item.equals("#EXTM3U") || item.matches(
+                    "(?i)^#EXT-X-(?:VERSION|TARGETDURATION|MEDIA-SEQUENCE|PLAYLIST-TYPE|INDEPENDENT-SEGMENTS|DISCONTINUITY-SEQUENCE)(?::.*)?$"))) {
+                leading.add(raw);
+            } else {
+                pending.add(raw);
+            }
+        }
+
+        if (segments.isEmpty()) return content;
+        TimedSegment firstTimedSegment = null;
+        for (TimedSegment segment : segments) {
+            if (segment.programDateTime != null) {
+                firstTimedSegment = segment;
+                break;
+            }
+        }
+
+        boolean[] remove = new boolean[segments.size()];
+        int removed = 0;
+        for (AdDateRange range : ranges.values()) {
+            if (!range.ad) continue;
+            double duration = range.endDate != null && range.startDate != null
+                    ? (range.endDate - range.startDate) / 1000.0
+                    : range.duration;
+            if (!Double.isFinite(duration) || duration <= 0) continue;
+            double start = range.startOffset;
+            if (range.startDate != null && firstTimedSegment != null) {
+                start = firstTimedSegment.startOffset
+                        + (range.startDate - firstTimedSegment.programDateTime) / 1000.0;
+            }
+            removed += markOverlappingSegments(segments, remove, start, start + duration);
+        }
+        for (TimeInterval interval : scteIntervals) {
+            removed += markOverlappingSegments(segments, remove, interval.start, interval.end);
+        }
+        if (removed == 0) return content;
+
+        StringBuilder output = new StringBuilder(normalized.length());
+        for (String raw : leading) output.append(raw).append('\n');
+        for (int i = 0; i < segments.size(); i++) {
+            if (remove[i]) continue;
+            TimedSegment segment = segments.get(i);
+            for (String raw : segment.prefixLines) output.append(raw).append('\n');
+            output.append(segment.uri).append('\n');
+        }
+        for (String raw : pending) output.append(raw).append('\n');
+        String result = normalizeMediaPlaylist(output.toString());
+        if (!isPlayableMediaPlaylist(result)) return content;
+        currentAdCount += removed;
+        LOG.i("echo-fixAdM3u8 daterange detected: removed " + removed + " segments");
+        return result;
+    }
+
+    private static int markOverlappingSegments(
+            List<TimedSegment> segments, boolean[] remove, double start, double end) {
+        int newlyRemoved = 0;
+        for (int i = 0; i < segments.size(); i++) {
+            TimedSegment segment = segments.get(i);
+            if (segment.startOffset < end && segment.startOffset + segment.duration > start && !remove[i]) {
+                remove[i] = true;
+                newlyRemoved++;
+            }
+        }
+        return newlyRemoved;
+    }
+
+    private static Map<String, String> parseAttributeList(String line) {
+        Map<String, String> attributes = new HashMap<>();
+        Matcher matcher = Pattern.compile("(?:^|,)\\s*([A-Z0-9-]+)=((?:\"[^\"]*\")|[^,]*)", Pattern.CASE_INSENSITIVE)
+                .matcher(line.substring(line.indexOf(':') + 1));
+        while (matcher.find()) {
+            String value = matcher.group(2).trim();
+            if (value.length() >= 2 && value.charAt(0) == '\"' && value.charAt(value.length() - 1) == '\"') {
+                value = value.substring(1, value.length() - 1);
+            }
+            attributes.put(matcher.group(1).toUpperCase(Locale.ROOT), value);
+        }
+        return attributes;
+    }
+
+    private static void mergeAdDateRange(
+            Map<String, AdDateRange> ranges, Map<String, String> attributes, double startOffset) {
+        String id = attributes.get("ID");
+        if (id == null || id.isEmpty()) return;
+        AdDateRange range = ranges.get(id);
+        if (range == null) {
+            range = new AdDateRange(id, startOffset);
+            ranges.put(id, range);
+        }
+        Long startDate = parseIsoDate(attributes.get("START-DATE"));
+        Long endDate = parseIsoDate(attributes.get("END-DATE"));
+        if (startDate != null) range.startDate = startDate;
+        if (endDate != null) range.endDate = endDate;
+        Double duration = parsePositiveDouble(attributes.get("DURATION"));
+        if (duration != null) range.duration = duration;
+        String marker = attributes.getOrDefault("ID", "") + " " + attributes.getOrDefault("CLASS", "");
+        range.ad |= isAdSegmentUri(marker)
+                || attributes.containsKey("SCTE35-OUT")
+                || attributes.containsKey("SCTE35-IN")
+                || attributes.containsKey("X-ASSET-URI");
+    }
+
+    private static Double parsePositiveDouble(String value) {
+        if (value == null) return null;
+        try {
+            double parsed = Double.parseDouble(value.trim());
+            return Double.isFinite(parsed) && parsed > 0 ? parsed : null;
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private static Long parseIsoDate(String value) {
+        if (value == null || value.trim().isEmpty()) return null;
+        String normalized = value.trim();
+        int zoneStart = Math.max(normalized.lastIndexOf('+'), normalized.lastIndexOf('-'));
+        if (normalized.endsWith("Z") || normalized.endsWith("z")) zoneStart = normalized.length() - 1;
+        int fractionStart = normalized.indexOf('.');
+        if (fractionStart >= 0 && zoneStart > fractionStart) {
+            String fraction = normalized.substring(fractionStart + 1, zoneStart);
+            if (!fraction.matches("\\d+")) return null;
+            String millis = (fraction + "000").substring(0, 3);
+            normalized = normalized.substring(0, fractionStart) + "." + millis + normalized.substring(zoneStart);
+        }
+        if (normalized.endsWith("z")) normalized = normalized.substring(0, normalized.length() - 1) + "Z";
+        if (normalized.matches(".*[+-]\\d{4}$")) {
+            normalized = normalized.substring(0, normalized.length() - 2) + ":" + normalized.substring(normalized.length() - 2);
+        }
+        for (String pattern : new String[]{"yyyy-MM-dd'T'HH:mm:ss.SSSXXX", "yyyy-MM-dd'T'HH:mm:ssXXX"}) {
+            SimpleDateFormat format = new SimpleDateFormat(pattern, Locale.US);
+            format.setLenient(false);
+            format.setTimeZone(TimeZone.getTimeZone("UTC"));
+            ParsePosition position = new ParsePosition(0);
+            Date parsed = format.parse(normalized, position);
+            if (parsed != null && position.getIndex() == normalized.length()) return parsed.getTime();
+        }
+        return null;
     }
 
     /**
@@ -775,8 +966,9 @@ public class M3u8 {
 
         StringBuilder sb = new StringBuilder();
         boolean changed = false;
-        for (Group group : groups) {
-            if (shouldDropGroup(group, main)) {
+        for (int i = 0; i < groups.size(); i++) {
+            Group group = groups.get(i);
+            if (shouldDropGroup(group, main, i, groups)) {
                 currentAdCount += group.segmentCount;
                 changed = true;
                 continue;
@@ -810,7 +1002,7 @@ public class M3u8 {
         return main;
     }
 
-    private static boolean shouldDropGroup(Group group, Group main) {
+    private static boolean shouldDropGroup(Group group, Group main, int index, List<Group> groups) {
         if (group == main || group.segmentCount == 0) return false;
 
         // 增强：更严格的广告识别条件
@@ -828,9 +1020,51 @@ public class M3u8 {
         boolean hasAdFeature = group.adLikeCount > 0 || hasAdDomain(group.host) ||
                               isAdSegmentUri(group.pathPrefix);
 
-        boolean adLike = hasAdFeature || differentHost || (group.segmentCount <= 2 && differentPath);
+        boolean boundedCadenceOutlier = isBoundedCadenceOutlier(group, index, groups);
+        boolean adLike = hasAdFeature || differentHost || (group.segmentCount <= 2 && differentPath)
+                || boundedCadenceOutlier;
 
         return shortGroup && adLike;
+    }
+
+    private static boolean isBoundedCadenceOutlier(Group group, int index, List<Group> groups) {
+        if (index == 0 || index == groups.size() - 1 || group.segmentCount < 3
+                || group.segmentCount > MAX_FRAME_RATE_AD_BLOCK_SIZE) return false;
+        List<Double> candidateDurations = group.segmentDurations();
+        if (candidateDurations.size() != group.segmentCount) return false;
+        Double candidateMedian = medianDuration(candidateDurations);
+        if (candidateMedian == null || candidateMedian <= 0) return false;
+        for (double duration : candidateDurations) {
+            if (Math.abs(duration - candidateMedian) > 0.05) return false;
+        }
+
+        List<Double> before = tail(groups.get(index - 1).segmentDurations(), 12);
+        List<Double> after = head(groups.get(index + 1).segmentDurations(), 12);
+        if (before.size() < 3 || after.size() < 3) return false;
+        Double beforeMedian = medianDuration(before);
+        Double afterMedian = medianDuration(after);
+        if (beforeMedian == null || afterMedian == null
+                || Math.abs(beforeMedian - afterMedian) > 0.04) return false;
+
+        return Math.abs(candidateMedian - (beforeMedian + afterMedian) / 2.0) >= 0.08;
+    }
+
+    private static List<Double> head(List<Double> values, int count) {
+        return new ArrayList<>(values.subList(0, Math.min(values.size(), count)));
+    }
+
+    private static List<Double> tail(List<Double> values, int count) {
+        return new ArrayList<>(values.subList(Math.max(0, values.size() - count), values.size()));
+    }
+
+    private static Double medianDuration(List<Double> values) {
+        if (values.isEmpty()) return null;
+        List<Double> sorted = new ArrayList<>(values);
+        Collections.sort(sorted);
+        int middle = sorted.size() / 2;
+        return sorted.size() % 2 == 0
+                ? (sorted.get(middle - 1) + sorted.get(middle)) / 2.0
+                : sorted.get(middle);
     }
 
     private static String hostOf(String url) {
@@ -981,6 +1215,57 @@ public class M3u8 {
 
         private double score() {
             return totalDuration > 0 ? totalDuration : segmentCount;
+        }
+
+        private List<Double> segmentDurations() {
+            List<Double> durations = new ArrayList<>();
+            for (String raw : lines) {
+                if (getExtInfValueStart(raw) >= 0) {
+                    durations.add(parseExtInfDuration(raw).doubleValue());
+                }
+            }
+            return durations;
+        }
+    }
+
+    private static class TimedSegment {
+        private final List<String> prefixLines;
+        private final String uri;
+        private final double startOffset;
+        private final double duration;
+        private final Long programDateTime;
+
+        private TimedSegment(
+                List<String> prefixLines, String uri, double startOffset, double duration, Long programDateTime) {
+            this.prefixLines = prefixLines;
+            this.uri = uri;
+            this.startOffset = startOffset;
+            this.duration = duration;
+            this.programDateTime = programDateTime;
+        }
+    }
+
+    private static class AdDateRange {
+        private final String id;
+        private final double startOffset;
+        private Long startDate;
+        private Long endDate;
+        private Double duration;
+        private boolean ad;
+
+        private AdDateRange(String id, double startOffset) {
+            this.id = id;
+            this.startOffset = startOffset;
+        }
+    }
+
+    private static class TimeInterval {
+        private final double start;
+        private final double end;
+
+        private TimeInterval(double start, double end) {
+            this.start = start;
+            this.end = end;
         }
     }
 
