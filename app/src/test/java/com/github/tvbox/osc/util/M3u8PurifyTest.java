@@ -86,8 +86,10 @@ public class M3u8PurifyTest {
                 "https://xgzy.example/vod/index.m3u8", playlist.toString(), signatures);
 
         assertEquals(4, result.removedSegments());
-        assertFalse(result.content().contains("ad-variant"));
+        assertFalse(result.content().contains("seg0002.ts"));
+        assertFalse(result.content().contains("seg0003.ts"));
         assertTrue(result.content().contains("seg0000.ts"));
+        assertTrue(result.content().contains("seg0006.ts"));
         assertTrue(result.content().contains("seg0008.ts"));
     }
 
