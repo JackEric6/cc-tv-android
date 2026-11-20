@@ -6,7 +6,8 @@ val requestedApplicationIdSuffix = (project.findProperty("APP_ID_SUFFIX") as Str
     ?: ""
 val requestedVersionCode = (project.findProperty("APP_VERSION_CODE") as String?)
     ?.toIntOrNull()
-    ?: 77
+    // 1.0.676 曾以 versionCode=676 在测试设备上安装；后续版本必须高于它才能覆盖升级。
+    ?: 677
 val requestedVersionName = (project.findProperty("APP_VERSION_NAME") as String?)
     ?.trim()
     ?.takeIf { it.isNotEmpty() }

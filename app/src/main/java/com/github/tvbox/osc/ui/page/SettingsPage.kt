@@ -33,6 +33,7 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -73,6 +74,7 @@ import com.github.tvbox.osc.util.MusicSettings
 import com.github.tvbox.osc.util.OkGoHelper
 import com.github.tvbox.osc.util.KV
 import com.github.tvbox.osc.util.LOG
+import com.github.tvbox.osc.util.AppUpdateManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -222,6 +224,61 @@ fun SettingsPage(
         }
     }
     var aboutSheet by remember { mutableStateOf(false) }
+    var updateInfo by remember { mutableStateOf<AppUpdateManager.UpdateInfo?>(null) }
+    var updateBusy by remember { mutableStateOf(false) }
+    var updateStatus by remember { mutableStateOf("") }
+    var updateProgress by remember { mutableStateOf<AppUpdateManager.DownloadProgress?>(null) }
+    var downloadingVersion by remember { mutableStateOf("") }
+    val updateScope = rememberCoroutineScope()
+
+    fun checkForUpdates() {
+        if (updateBusy) return
+        updateBusy = true
+        updateStatus = "正在检查 GitHub Release…"
+        updateScope.launch {
+            try {
+                val result = AppUpdateManager.check(context)
+                updateInfo = result
+                updateStatus = if (result == null) {
+                    "当前已是最新版本 v${versionName.ifEmpty { "未知" }}"
+                } else {
+                    "发现新版本 v${result.latestVersion}"
+                }
+            } catch (error: Exception) {
+                updateStatus = "检查更新失败：${error.message ?: "网络不可用"}"
+            } finally {
+                updateBusy = false
+            }
+        }
+    }
+
+    fun downloadAndInstall(info: AppUpdateManager.UpdateInfo) {
+        if (updateBusy) return
+        updateBusy = true
+        updateProgress = AppUpdateManager.DownloadProgress(0L, info.assetSize)
+        downloadingVersion = info.latestVersion
+        updateStatus = "正在下载 v${info.latestVersion}…"
+        updateInfo = null
+        updateScope.launch {
+            try {
+                val apk = AppUpdateManager.download(context, info) { progress ->
+                    updateScope.launch {
+                        if (downloadingVersion == info.latestVersion) updateProgress = progress
+                    }
+                }
+                downloadingVersion = ""
+                updateProgress = null
+                updateStatus = "下载完成，正在打开系统安装器"
+                AppUpdateManager.install(context, apk)
+            } catch (error: Exception) {
+                updateProgress = null
+                downloadingVersion = ""
+                updateStatus = "更新下载失败：${error.message ?: "未知错误"}"
+            } finally {
+                updateBusy = false
+            }
+        }
+    }
 
     val listState = rememberScrollState()
 
@@ -286,6 +343,19 @@ fun SettingsPage(
                         subtitle = "查看缓存任务和已完成视频",
                         iconRes = R.drawable.ic_tab_download,
                         onClick = { DownloadActivity.start(context) },
+                    )
+                }
+            }
+
+            SettingsGroup(title = null) {
+                SettingsCard(SettingsCardPosition.SINGLE) {
+                    SettingsRow(
+                        title = "软件更新",
+                        subtitle = updateStatus.ifEmpty { "检查 GitHub Release 中的最新正式 APK" },
+                        valueText = if (updateBusy) "处理中" else "检查",
+                        iconRes = R.drawable.ic_settings_github,
+                        enabled = !updateBusy,
+                        onClick = { checkForUpdates() },
                     )
                 }
             }
@@ -367,6 +437,65 @@ fun SettingsPage(
         AboutSheet(versionName = versionName, onDismiss = { aboutSheet = false })
     }
 
+    updateInfo?.let { info ->
+        AlertDialog(
+            onDismissRequest = { updateInfo = null },
+            title = { Text("发现新版本 v${info.latestVersion}") },
+            text = {
+                Column {
+                    Text("当前版本：v${info.currentVersion}")
+                    Text(
+                        text = info.notes.ifEmpty { "该版本包含功能和稳定性改进。" },
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { updateInfo = null }) { Text("稍后") }
+            },
+            confirmButton = {
+                TextButton(onClick = { downloadAndInstall(info) }) { Text("立即更新") }
+            },
+        )
+    }
+
+    updateProgress?.let { progress ->
+        val percent = if (progress.total > 0L) {
+            (progress.downloaded * 100L / progress.total).coerceIn(0L, 100L)
+        } else {
+            0L
+        }
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("正在下载更新") },
+            text = {
+                Column {
+                    Text("v${downloadingVersion.ifEmpty { versionName }}")
+                    androidx.compose.material3.LinearProgressIndicator(
+                        progress = { percent / 100f },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 16.dp),
+                    )
+                    Text(
+                        text = if (progress.total > 0L) {
+                            "${percent}%  ${formatUpdateBytes(progress.downloaded)} / ${formatUpdateBytes(progress.total)}"
+                        } else {
+                            formatUpdateBytes(progress.downloaded)
+                        },
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+            },
+            confirmButton = {},
+        )
+    }
+}
+
+private fun formatUpdateBytes(bytes: Long): String {
+    if (bytes < 1024L) return "${bytes}B"
+    if (bytes < 1024L * 1024L) return "${bytes / 1024L}KB"
+    return String.format("%.1fMB", bytes / (1024f * 1024f))
 }
 
 @Composable
