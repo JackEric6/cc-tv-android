@@ -77,11 +77,13 @@ import com.github.tvbox.osc.ui.navbar.NavAxis
 import com.github.tvbox.osc.ui.navbar.NavMetrics
 import com.github.tvbox.osc.ui.theme.LiquidGlassState
 import com.github.tvbox.osc.util.AppManager
+import com.github.tvbox.osc.util.AppUpdateManager
 import com.github.tvbox.osc.util.BootGuard
 import com.github.tvbox.osc.util.HawkConfig
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.github.tvbox.osc.util.KV
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private enum class AppTab(val label: String, @DrawableRes val icon: Int) {
@@ -122,6 +124,11 @@ private fun BootErrorDialog(msg: String) {
 private fun MainContent() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var automaticUpdate by remember { mutableStateOf<AppUpdateManager.UpdateInfo?>(null) }
+    LaunchedEffect(Unit) {
+        delay(3_000L)
+        automaticUpdate = runCatching { AppUpdateManager.check(context) }.getOrNull()
+    }
     val pagerState = rememberPagerState(pageCount = { AppTab.entries.size })
     val homeViewModel: HomeViewModel = viewModel()
     // 下载页由 HorizontalPager 保活，统一在主界面持有 VM，避免详情页返回后
@@ -372,5 +379,30 @@ private fun MainContent() {
             }
             SheetHost(sheetHost)
         }
+    }
+    automaticUpdate?.let { info ->
+        AlertDialog(
+            onDismissRequest = { automaticUpdate = null },
+            title = { Text("发现新版本 v${info.latestVersion}") },
+            text = {
+                Text(
+                    info.notes.ifEmpty { "该版本包含功能和稳定性改进。" },
+                    maxLines = 8,
+                )
+            },
+            dismissButton = {
+                TextButton(onClick = { automaticUpdate = null }) { Text("稍后") }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        automaticUpdate = null
+                        selectTab(AppTab.SETTINGS.ordinal)
+                    },
+                ) {
+                    Text("去设置更新")
+                }
+            },
+        )
     }
 }
