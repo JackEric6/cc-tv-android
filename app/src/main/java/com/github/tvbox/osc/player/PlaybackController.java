@@ -344,7 +344,14 @@ public class PlaybackController {
         skipM3u8PurifyUrl = null;
     }
 
-    private boolean retryOriginalM3u8Once() {
+    /**
+     * 代理槽位失效时重新拉取并净化原始播放列表。
+     *
+     * <p>旧实现把原始地址标记为 {@code skipM3u8PurifyUrl},直接绕过去广告链路。
+     * 这会把代理 404/过期误处理成“净化失效”:用户看到广告,重启后又因为重新生成槽位而恢复。
+     * 失败重试仍只做一次,但必须重新走净化,不能把未净化地址交给播放器。
+     */
+    private boolean retryM3u8PurificationOnce() {
         if (TextUtils.isEmpty(m3u8ProxyUrl) || TextUtils.isEmpty(m3u8SourceUrl)
                 || m3u8OriginalFallbackAttempted) return false;
         String originalUrl = m3u8SourceUrl;
@@ -354,8 +361,9 @@ public class PlaybackController {
         m3u8ProxyUrl = null;
         m3u8SourceUrl = null;
         m3u8SourceHeaders = null;
-        skipM3u8PurifyUrl = originalUrl;
-        LOG.i("echo-m3u8-proxy failed, retry original playlist once");
+        // 不设置 skipM3u8PurifyUrl:代理失败也必须重新走净化链路。
+        skipM3u8PurifyUrl = null;
+        LOG.i("echo-m3u8-proxy failed, retry purification once");
         stopParse();
         initParseLoadFound();
         if (view != null) view.releasePlayer();
@@ -884,7 +892,7 @@ public class PlaybackController {
      * (手动重播/切内核/切解码/换解析)—— 用户的主动自救动作之后允许再兜一次底。
      */
     public boolean retryAfterStartedError() {
-        if (retryOriginalM3u8Once()) return true;
+        if (retryM3u8PurificationOnce()) return true;
         if (st.hasRetriedAfterStart) return false;
         if (TextUtils.isEmpty(webPlayUrl)) return false;
         st.hasRetriedAfterStart = true;
@@ -910,7 +918,7 @@ public class PlaybackController {
      * @return true = 已发起重试;false = 无路可走(调用方负责提示与收尾)
      */
     public boolean autoRetry() {
-        if (retryOriginalM3u8Once()) return true;
+        if (retryM3u8PurificationOnce()) return true;
         long currentTime = System.currentTimeMillis();
         if (currentTime - st.lastRetryTime > 60_000) {
             LOG.i("echo-reset-autoRetryCount");
@@ -1663,8 +1671,20 @@ public class PlaybackController {
         if ("zanpian".equalsIgnoreCase(sourceKey)) return false;
         String normalized = url.toLowerCase(Locale.ROOT);
         return !normalized.startsWith("http://127.0.0.1")
-                && !normalized.contains("url=")
-                && normalized.contains(".m3u8");
+                && normalized.contains(".m3u8")
+                // 只有“播放页?url=...”才绕过去广告链;真正的 m3u8 路径即使带
+                // url= 查询参数(部分资源站的签名参数)也必须净化。
+                && (!normalized.contains("url=") || hasM3u8Path(normalized));
+    }
+
+    private static boolean hasM3u8Path(String url) {
+        if (url == null) return false;
+        int query = url.indexOf('?');
+        int fragment = url.indexOf('#');
+        int end = url.length();
+        if (query >= 0) end = Math.min(end, query);
+        if (fragment >= 0) end = Math.min(end, fragment);
+        return url.substring(0, end).contains(".m3u8");
     }
 
     static long switchLineTimeoutForUrl(String url, boolean purifierEnabled, boolean noAd) {

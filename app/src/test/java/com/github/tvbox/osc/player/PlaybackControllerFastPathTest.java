@@ -42,6 +42,8 @@ public class PlaybackControllerFastPathTest {
         assertTrue(PlaybackController.shouldPurifyM3u8(playlist, true, false));
         assertFalse(PlaybackController.shouldPurifyM3u8(playlist, true, false, "zanpian"));
         assertTrue(PlaybackController.shouldPurifyM3u8(playlist, true, false, "ffzy"));
+        assertTrue(PlaybackController.shouldPurifyM3u8(
+                "https://cdn.example/live/index.m3u8?url=token-value", true, false));
         assertEquals(
                 PlaybackController.M3U8_PURIFY_SWITCH_LINE_TIMEOUT_MS,
                 PlaybackController.switchLineTimeoutForUrl(playlist, true, false));

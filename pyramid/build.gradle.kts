@@ -41,7 +41,7 @@ chaquopy {
         version = "3.10"
         // 优先使用项目随附的 Python 3.10 构建环境；Chaquopy 3.10 不能使用 Python 3.11+。
         // 若该环境不存在，则回退到 PATH 自动探测。
-        val localBuildPython = "D:/Desktop/AIcode/TV/tools-python/python310/python.exe"
+        val localBuildPython = "D:/Desktop/AIcode/TV/toolchains/python/python310/python.exe"
         if (file(localBuildPython).exists()) {
             buildPython(localBuildPython)
         }

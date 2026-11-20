@@ -53,7 +53,7 @@ public final class M3u8PurifyUseCase {
     }
 
     public void playM3u8(final String url, final HashMap<String, String> headers, final int gen) {
-        if (url.contains("url=")) {
+        if (url.contains("url=") && !hasM3u8Path(url)) {
             callback.startPlayUrl(gen, url, headers);
             return;
         }
@@ -66,6 +66,22 @@ public final class M3u8PurifyUseCase {
                 okGoHeaders.put(entry.getKey(), entry.getValue());
             }
         }
+        requestM3u8(url, headers, gen, okGoHeaders, 0);
+    }
+
+    private boolean hasM3u8Path(String url) {
+        if (url == null) return false;
+        int query = url.indexOf('?');
+        int fragment = url.indexOf('#');
+        int end = url.length();
+        if (query >= 0) end = Math.min(end, query);
+        if (fragment >= 0) end = Math.min(end, fragment);
+        return url.substring(0, end).toLowerCase(java.util.Locale.ROOT).contains(".m3u8");
+    }
+
+    private void requestM3u8(
+            final String url, final HashMap<String, String> headers, final int gen,
+            final HttpHeaders okGoHeaders, final int attempt) {
         OkGo.<String>get(url)
                 .tag("m3u8-1")
                 .headers(okGoHeaders)
@@ -74,7 +90,9 @@ public final class M3u8PurifyUseCase {
                     public void onSuccess(Response<String> response) {
                         String content = normalizeM3u8Content(response.body());
                         if (content == null) {
-                            callback.startPlayUrl(gen, url, headers);
+                            retryM3u8OrFallback(
+                                    url, headers, gen, okGoHeaders, attempt,
+                                    "返回内容不是合法 M3U8");
                             return;
                         }
                         String forwardUrl = extractForwardUrl(url, content);
@@ -82,7 +100,7 @@ public final class M3u8PurifyUseCase {
                             LOG.i("echo-m3u81-to-play");
                             processM3u8Content(url, content, headers, gen);
                         } else {
-                            fetchAndProcessForwardUrl(forwardUrl, headers, okGoHeaders, url, gen);
+                            fetchAndProcessForwardUrl(forwardUrl, headers, okGoHeaders, url, gen, 0);
                         }
                     }
 
@@ -94,10 +112,37 @@ public final class M3u8PurifyUseCase {
                     @Override
                     public void onError(Response<String> response) {
                         super.onError(response);
-                        LOG.e("echo-m3u8请求错误1: " + response.getException());
-                        callback.startPlayUrl(gen, url, headers);
+                        Throwable error = response.getException();
+                        if (isRequestCancelled(error)) {
+                            LOG.i("echo-m3u8请求已取消，不重试");
+                            return;
+                        }
+                        LOG.e("echo-m3u8请求错误1: " + error);
+                        retryM3u8OrFallback(
+                                url, headers, gen, okGoHeaders, attempt,
+                                "请求失败: " + error);
                     }
                 });
+    }
+
+    private boolean isRequestCancelled(Throwable error) {
+        if (error == null) return false;
+        if (error instanceof java.util.concurrent.CancellationException) return true;
+        String message = error.getMessage();
+        return message != null && ("canceled".equalsIgnoreCase(message.trim())
+                || "cancelled".equalsIgnoreCase(message.trim()));
+    }
+
+    private void retryM3u8OrFallback(
+            String url, HashMap<String, String> headers, int gen,
+            HttpHeaders okGoHeaders, int attempt, String reason) {
+        if (attempt == 0) {
+            LOG.i("echo-m3u8净化首次请求未成功，重试一次: " + reason);
+            requestM3u8(url, headers, gen, okGoHeaders, 1);
+            return;
+        }
+        LOG.e("echo-m3u8净化重试失败，回退原地址: " + reason);
+        callback.startPlayUrl(gen, url, headers);
     }
 
     private String extractForwardUrl(String baseUrl, String content) {
@@ -162,6 +207,11 @@ public final class M3u8PurifyUseCase {
             callback.startPlayUrl(gen, url, headers);
         } else {
             String key = RemoteServer.putM3u8Content(result.content());
+            if (key == null) {
+                LOG.e("echo-m3u8净化结果为空，放弃代理起播");
+                callback.startPlayUrl(gen, url, headers);
+                return;
+            }
             String proxyUrl = ControlManager.get().getAddress(true) + "proxyM3u8?k=" + key;
             callback.onM3u8ProxyUrl(gen, proxyUrl, url, headers);
             callback.startPlayUrl(gen, proxyUrl, headers);
@@ -296,8 +346,9 @@ public final class M3u8PurifyUseCase {
         }
     }
 
-    private void fetchAndProcessForwardUrl(final String forwardUrl, final HashMap<String, String> headers,
-                                           HttpHeaders okGoHeaders, final String fallbackUrl, final int gen) {
+    private void fetchAndProcessForwardUrl(
+            final String forwardUrl, final HashMap<String, String> headers,
+            HttpHeaders okGoHeaders, final String fallbackUrl, final int gen, final int attempt) {
         OkGo.<String>get(forwardUrl)
                 .tag("m3u8-2")
                 .headers(okGoHeaders)
@@ -307,7 +358,9 @@ public final class M3u8PurifyUseCase {
                         String content = normalizeM3u8Content(response.body());
                         LOG.i("echo-m3u82-to-play");
                         if (content == null) {
-                            callback.startPlayUrl(gen, fallbackUrl, headers);
+                            retryForwardM3u8OrFallback(
+                                    forwardUrl, headers, okGoHeaders, fallbackUrl, gen, attempt,
+                                    "返回内容不是合法 M3U8");
                             return;
                         }
                         processM3u8Content(forwardUrl, content, headers, gen);
@@ -321,10 +374,30 @@ public final class M3u8PurifyUseCase {
                     @Override
                     public void onError(Response<String> response) {
                         super.onError(response);
-                        LOG.e("echo-重定向 m3u8 请求错误: " + response.getException());
-                        callback.startPlayUrl(gen, fallbackUrl, headers);
+                        Throwable error = response.getException();
+                        if (isRequestCancelled(error)) {
+                            LOG.i("echo-m3u8子列表请求已取消，不重试");
+                            return;
+                        }
+                        LOG.e("echo-重定向 m3u8 请求错误: " + error);
+                        retryForwardM3u8OrFallback(
+                                forwardUrl, headers, okGoHeaders, fallbackUrl, gen, attempt,
+                                "请求失败: " + error);
                     }
                 });
+    }
+
+    private void retryForwardM3u8OrFallback(
+            String forwardUrl, HashMap<String, String> headers, HttpHeaders okGoHeaders,
+            String fallbackUrl, int gen, int attempt, String reason) {
+        if (attempt == 0) {
+            LOG.i("echo-m3u8子列表首次请求未成功，重试一次: " + reason);
+            fetchAndProcessForwardUrl(
+                    forwardUrl, headers, okGoHeaders, fallbackUrl, gen, 1);
+            return;
+        }
+        LOG.e("echo-m3u8子列表重试失败，回退主列表: " + reason);
+        callback.startPlayUrl(gen, fallbackUrl, headers);
     }
 
     private String getBasePath(String url) {

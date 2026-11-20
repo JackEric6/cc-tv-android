@@ -64,10 +64,14 @@ public class RemoteServer extends NanoHTTPD {
      * 去广告 m3u8 内容槽位(key → 内容;2026-09-13 起带键,取代此前的无参单槽)。
      * 背景:proxyUrl 原先不带任何身份参数、服务端直接吐"最后一次净化"的内容 ⇒ 切集后旧播放器的
      * 重试/重连请求会拿到新一集的列表。现按请求 {@code ?k=} 取:键不匹配/缺失返 404,旧播放器走
-     * 失败链路而不是串集。保留最近 [M3U8_SLOT_LIMIT] 条(访问序 LRU)——在播集反复重拉不会被冲掉。
-     * 内容是小文本(几 KB),纯内存、无持久化;进程重启后重新净化即产生新键。
+     * 失败链路而不是串集。
+     *
+     * <p>槽位不能只保留最近 4 条:播放器重连、预载和切集可能在同一会话内同时签发多个净化结果,
+     * 旧实现会淘汰仍在播放的代理地址,随后播放器收到 404 并回退到未净化原地址。这里保留更大的
+     * 有界缓存,同时按访问时间清理过期内容;每条内容通常只有几 KB,不会随长时间使用无限增长。
      */
-    private static final int M3U8_SLOT_LIMIT = 4;
+    private static final int M3U8_SLOT_LIMIT = 128;
+    private static final long M3U8_SLOT_TTL_MS = 30 * 60 * 1000L;
     private static final AtomicLong m3u8Seq = new AtomicLong(0);
     private static final Map<String, String> m3u8Slots = Collections.synchronizedMap(
             new LinkedHashMap<String, String>(8, 0.75f, true) {
@@ -76,6 +80,7 @@ public class RemoteServer extends NanoHTTPD {
                     return size() > M3U8_SLOT_LIMIT;
                 }
             });
+    private static final Map<String, Long> m3u8SlotLastAccess = new HashMap<>();
     private ArrayList<RequestProcess> getRequestList = new ArrayList<>();
     private ArrayList<RequestProcess> postRequestList = new ArrayList<>();
 
@@ -88,14 +93,42 @@ public class RemoteServer extends NanoHTTPD {
 
     /** 写入净化结果并返回本次的键(proxyUrl 用 {@code ?k=<key>} 取);仅在真正走代理播放时调用 */
     public static String putM3u8Content(String content) {
+        if (TextUtils.isEmpty(content)) return null;
         String key = System.currentTimeMillis() + "-" + m3u8Seq.incrementAndGet();
-        m3u8Slots.put(key, content);
+        synchronized (m3u8Slots) {
+            long now = System.currentTimeMillis();
+            purgeExpiredM3u8Slots(now);
+            m3u8Slots.put(key, content);
+            m3u8SlotLastAccess.put(key, now);
+        }
         return key;
     }
 
-    /** 按键取净化结果;键缺失或已被 LRU 淘汰返回 null(调用方应答 404,不返回错误进度) */
+    /** 按键取净化结果;键缺失或已过期返回 null(调用方应答 404,不返回错误进度) */
     public static String getM3u8Content(String key) {
-        return key == null ? null : m3u8Slots.get(key);
+        if (key == null) return null;
+        synchronized (m3u8Slots) {
+            long now = System.currentTimeMillis();
+            purgeExpiredM3u8Slots(now);
+            String content = m3u8Slots.get(key);
+            if (content != null) m3u8SlotLastAccess.put(key, now);
+            return content;
+        }
+    }
+
+    private static void purgeExpiredM3u8Slots(long now) {
+        java.util.Iterator<Map.Entry<String, String>> iterator = m3u8Slots.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<String, String> entry = iterator.next();
+            String key = entry.getKey();
+            Long lastAccess = m3u8SlotLastAccess.get(key);
+            if (lastAccess == null) lastAccess = now;
+            if (now - lastAccess > M3U8_SLOT_TTL_MS) {
+                iterator.remove();
+                m3u8SlotLastAccess.remove(key);
+            }
+        }
+        m3u8SlotLastAccess.keySet().retainAll(m3u8Slots.keySet());
     }
 
     private void addGetRequestProcess() {
