@@ -6,6 +6,8 @@ import static org.junit.Assert.assertTrue;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.HashMap;
+import java.util.Map;
 
 import org.junit.Test;
 
@@ -62,6 +64,31 @@ public class M3u8PurifyTest {
 
         assertEquals(0, result.removedSegments());
         assertTrue(result.content().contains("seg000a.ts"));
+    }
+
+    @Test
+    public void removesBoundedSpsVariantGroupsWhenSurroundedByDominantEncoding() {
+        StringBuilder playlist = new StringBuilder("#EXTM3U\n#EXT-X-PLAYLIST-TYPE:VOD\n");
+        Map<String, String> signatures = new HashMap<>();
+        int segment = 0;
+        String[] groupSignatures = {"main", "ad-variant", "ad-variant", "main", "main"};
+        for (String groupSignature : groupSignatures) {
+            playlist.append("#EXT-X-DISCONTINUITY\n");
+            for (int i = 0; i < 2; i++) {
+                String url = "https://xgzy.example/vod/seg" + String.format(java.util.Locale.ROOT, "%04d", segment++) + ".ts";
+                playlist.append("#EXTINF:4.000,\n").append(url).append('\n');
+                signatures.put(url, groupSignature);
+            }
+        }
+        playlist.append("#EXT-X-ENDLIST\n");
+
+        M3u8.PurifyResult result = M3u8.purifyWithResult(
+                "https://xgzy.example/vod/index.m3u8", playlist.toString(), signatures);
+
+        assertEquals(4, result.removedSegments());
+        assertFalse(result.content().contains("ad-variant"));
+        assertTrue(result.content().contains("seg0000.ts"));
+        assertTrue(result.content().contains("seg0008.ts"));
     }
 
     @Test

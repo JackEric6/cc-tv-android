@@ -8,7 +8,6 @@ import java.math.BigDecimal;
 import java.text.ParsePosition;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -19,6 +18,7 @@ import java.util.Set;
 import java.util.TimeZone;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.io.ByteArrayOutputStream;
 
 
 /**
@@ -63,11 +63,21 @@ public class M3u8 {
     }
 
     public static synchronized PurifyResult purifyWithResult(String tsUrlPre, String m3u8content) {
-        String content = purifyInternal(tsUrlPre, m3u8content);
+        return purifyWithResult(tsUrlPre, m3u8content, null);
+    }
+
+    public static synchronized PurifyResult purifyWithResult(
+            String tsUrlPre, String m3u8content, Map<String, String> segmentSignatures) {
+        String content = purifyInternal(tsUrlPre, m3u8content, segmentSignatures);
         return new PurifyResult(content, currentAdCount);
     }
 
     private static String purifyInternal(String tsUrlPre, String m3u8content) {
+        return purifyInternal(tsUrlPre, m3u8content, null);
+    }
+
+    private static String purifyInternal(
+            String tsUrlPre, String m3u8content, Map<String, String> segmentSignatures) {
 //        LOG.i("echo-fixAdM3u8 m3u8content: " +m3u8content);
         long start = System.currentTimeMillis();
         currentAdCount = 0;
@@ -85,8 +95,8 @@ public class M3u8 {
         }
 
         String result = removeMinorityUrl(tsUrlPre, m3u8content);
-        if (result != null && currentAdCount > 0) result = get(tsUrlPre, result);
-        else result = get(tsUrlPre, m3u8content);
+        if (result != null && currentAdCount > 0) result = get(tsUrlPre, result, segmentSignatures);
+        else result = get(tsUrlPre, m3u8content, segmentSignatures);
         result = keepVodEndList(m3u8content, result);
 
         // Final safety check: if too many segments removed, return original content
@@ -263,7 +273,8 @@ public class M3u8 {
         return normalizeMediaPlaylist(filtered.toString());
     }
 
-    private static String get(String tsUrlPre, String m3u8Content) {
+    private static String get(
+            String tsUrlPre, String m3u8Content, Map<String, String> segmentSignatures) {
         String line = resolveContent(tsUrlPre, m3u8Content);
         List<String> ads = getRegex(tsUrlPre);
         if (ads != null && !ads.isEmpty()) line = clean(line, ads);
@@ -273,6 +284,9 @@ public class M3u8 {
             line = cleanDecimalPrecisionGroups(line);
             line = cleanFrameRateGroups(line);
             line = cleanUniformDurationGroups(line);
+        }
+        if (segmentSignatures != null && !segmentSignatures.isEmpty()) {
+            line = cleanSpsVariantGroups(tsUrlPre, line, segmentSignatures);
         }
         return cleanDiscontinuityGroups(line);
     }
@@ -957,6 +971,110 @@ public class M3u8 {
         return false;
     }
 
+    /**
+     * 西瓜源存在一类无广告标签、且与正片同域的插片广告。
+     * 这类广告通常只在短暂 discontinuity 组内切换 H.264 SPS，前后又恢复原编码。
+     * 只有在同一 SPS 正片组包围、组数量和时长均受限时才删除，避免误删正常清晰度切换。
+     */
+    private static String cleanSpsVariantGroups(
+            String baseUrl, String m3u8Content, Map<String, String> signatures) {
+        if (signatures == null || signatures.isEmpty()) return m3u8Content;
+        String[] lines = m3u8Content.split("\\n");
+        List<Group> groups = buildDiscontinuityGroups(lines);
+        if (groups.size() < 3) return m3u8Content;
+
+        String[] groupSignatures = new String[groups.size()];
+        Map<String, Integer> signatureCounts = new HashMap<>();
+        int knownCount = 0;
+        for (int index = 0; index < groups.size(); index++) {
+            Map<String, Integer> counts = new HashMap<>();
+            for (String uri : groups.get(index).segmentUris()) {
+                String signature = signatures.get(toAbsoluteUrl(baseUrl, uri));
+                if (signature == null || signature.isEmpty()) continue;
+                counts.put(signature, counts.getOrDefault(signature, 0) + 1);
+            }
+            String best = null;
+            int bestCount = 0;
+            for (Map.Entry<String, Integer> entry : counts.entrySet()) {
+                if (entry.getValue() > bestCount) {
+                    best = entry.getKey();
+                    bestCount = entry.getValue();
+                }
+            }
+            if (best != null) {
+                groupSignatures[index] = best;
+                signatureCounts.put(best, signatureCounts.getOrDefault(best, 0) + 1);
+                knownCount++;
+            }
+        }
+        if (knownCount < 3) return m3u8Content;
+
+        String dominant = null;
+        int dominantCount = 0;
+        for (Map.Entry<String, Integer> entry : signatureCounts.entrySet()) {
+            if (entry.getValue() > dominantCount) {
+                dominant = entry.getKey();
+                dominantCount = entry.getValue();
+            }
+        }
+        if (dominant == null || dominantCount < 3) return m3u8Content;
+
+        boolean[] removeGroups = new boolean[groups.size()];
+        int index = 0;
+        while (index < groups.size()) {
+            if (groupSignatures[index] == null || dominant.equals(groupSignatures[index])) {
+                index++;
+                continue;
+            }
+            int start = index;
+            while (index + 1 < groups.size()
+                    && groupSignatures[index + 1] != null
+                    && !dominant.equals(groupSignatures[index + 1])) {
+                index++;
+            }
+            int end = index;
+            boolean bounded = start > 0 && end < groups.size() - 1
+                    && dominant.equals(groupSignatures[start - 1])
+                    && dominant.equals(groupSignatures[end + 1]);
+            double runDuration = 0;
+            int runSegments = 0;
+            boolean hasShortBoundary = false;
+            for (int groupIndex = start; groupIndex <= end; groupIndex++) {
+                Group group = groups.get(groupIndex);
+                runDuration += group.totalDuration;
+                runSegments += group.segmentCount;
+                hasShortBoundary |= group.segmentCount <= 3 || group.totalDuration <= 12;
+            }
+            boolean repeatedVariant = end > start
+                    || signatureCounts.getOrDefault(groupSignatures[start], 0) > 1;
+            if (bounded && runDuration > 0 && runDuration <= 90
+                    && runSegments <= 18 && hasShortBoundary && repeatedVariant) {
+                for (int groupIndex = start; groupIndex <= end; groupIndex++) {
+                    removeGroups[groupIndex] = true;
+                }
+            }
+            index++;
+        }
+
+        int removedSegments = 0;
+        for (int groupIndex = 0; groupIndex < groups.size(); groupIndex++) {
+            if (removeGroups[groupIndex]) removedSegments += groups.get(groupIndex).segmentCount;
+        }
+        if (removedSegments == 0) return m3u8Content;
+
+        StringBuilder output = new StringBuilder(m3u8Content.length());
+        for (int groupIndex = 0; groupIndex < groups.size(); groupIndex++) {
+            if (removeGroups[groupIndex]) {
+                currentAdCount += groups.get(groupIndex).segmentCount;
+            } else {
+                groups.get(groupIndex).appendTo(output);
+            }
+        }
+        LOG.i("echo-fixAdM3u8 SPS variant detected: blocks=" + removedSegments
+                + ", dominant=" + dominant);
+        return normalizeMediaPlaylist(output.toString());
+    }
+
     private static String cleanDiscontinuityGroups(String m3u8Content) {
         String[] lines = m3u8Content.split("\n");
         List<Group> groups = buildDiscontinuityGroups(lines);
@@ -968,7 +1086,7 @@ public class M3u8 {
         boolean changed = false;
         for (int i = 0; i < groups.size(); i++) {
             Group group = groups.get(i);
-            if (shouldDropGroup(group, main, i, groups)) {
+            if (shouldDropGroup(group, main)) {
                 currentAdCount += group.segmentCount;
                 changed = true;
                 continue;
@@ -1002,7 +1120,7 @@ public class M3u8 {
         return main;
     }
 
-    private static boolean shouldDropGroup(Group group, Group main, int index, List<Group> groups) {
+    private static boolean shouldDropGroup(Group group, Group main) {
         if (group == main || group.segmentCount == 0) return false;
 
         // 增强：更严格的广告识别条件
@@ -1020,51 +1138,9 @@ public class M3u8 {
         boolean hasAdFeature = group.adLikeCount > 0 || hasAdDomain(group.host) ||
                               isAdSegmentUri(group.pathPrefix);
 
-        boolean boundedCadenceOutlier = isBoundedCadenceOutlier(group, index, groups);
-        boolean adLike = hasAdFeature || differentHost || (group.segmentCount <= 2 && differentPath)
-                || boundedCadenceOutlier;
+        boolean adLike = hasAdFeature || differentHost || (group.segmentCount <= 2 && differentPath);
 
         return shortGroup && adLike;
-    }
-
-    private static boolean isBoundedCadenceOutlier(Group group, int index, List<Group> groups) {
-        if (index == 0 || index == groups.size() - 1 || group.segmentCount < 3
-                || group.segmentCount > MAX_FRAME_RATE_AD_BLOCK_SIZE) return false;
-        List<Double> candidateDurations = group.segmentDurations();
-        if (candidateDurations.size() != group.segmentCount) return false;
-        Double candidateMedian = medianDuration(candidateDurations);
-        if (candidateMedian == null || candidateMedian <= 0) return false;
-        for (double duration : candidateDurations) {
-            if (Math.abs(duration - candidateMedian) > 0.05) return false;
-        }
-
-        List<Double> before = tail(groups.get(index - 1).segmentDurations(), 12);
-        List<Double> after = head(groups.get(index + 1).segmentDurations(), 12);
-        if (before.size() < 3 || after.size() < 3) return false;
-        Double beforeMedian = medianDuration(before);
-        Double afterMedian = medianDuration(after);
-        if (beforeMedian == null || afterMedian == null
-                || Math.abs(beforeMedian - afterMedian) > 0.04) return false;
-
-        return Math.abs(candidateMedian - (beforeMedian + afterMedian) / 2.0) >= 0.08;
-    }
-
-    private static List<Double> head(List<Double> values, int count) {
-        return new ArrayList<>(values.subList(0, Math.min(values.size(), count)));
-    }
-
-    private static List<Double> tail(List<Double> values, int count) {
-        return new ArrayList<>(values.subList(Math.max(0, values.size() - count), values.size()));
-    }
-
-    private static Double medianDuration(List<Double> values) {
-        if (values.isEmpty()) return null;
-        List<Double> sorted = new ArrayList<>(values);
-        Collections.sort(sorted);
-        int middle = sorted.size() / 2;
-        return sorted.size() % 2 == 0
-                ? (sorted.get(middle - 1) + sorted.get(middle)) / 2.0
-                : sorted.get(middle);
     }
 
     private static String hostOf(String url) {
@@ -1217,14 +1293,13 @@ public class M3u8 {
             return totalDuration > 0 ? totalDuration : segmentCount;
         }
 
-        private List<Double> segmentDurations() {
-            List<Double> durations = new ArrayList<>();
+        private List<String> segmentUris() {
+            List<String> uris = new ArrayList<>();
             for (String raw : lines) {
-                if (getExtInfValueStart(raw) >= 0) {
-                    durations.add(parseExtInfDuration(raw).doubleValue());
-                }
+                String line = raw.trim();
+                if (!line.isEmpty() && !line.startsWith("#")) uris.add(line);
             }
-            return durations;
+            return uris;
         }
     }
 
@@ -1351,5 +1426,92 @@ public class M3u8 {
         } else {
             return UriUtil.resolve(base, line);
         }
+    }
+
+    /** 从 MPEG-TS 前 512 KiB 中提取首个 H.264 SPS，作为分片编码签名。 */
+    public static String extractH264SpsSignature(byte[] input) {
+        if (input == null || input.length < 188) return null;
+        int pmtPid = -1;
+        int videoPid = -1;
+        ByteArrayOutputStream payloads = new ByteArrayOutputStream();
+        for (int offset = 0; offset + 188 <= input.length; offset += 188) {
+            if ((input[offset] & 0xff) != 0x47) continue;
+            int first = input[offset + 1] & 0xff;
+            int pid = ((first & 0x1f) << 8) | (input[offset + 2] & 0xff);
+            int flags = input[offset + 3] & 0xff;
+            int adaptation = (flags >> 4) & 0x03;
+            int payloadOffset = offset + 4;
+            if (adaptation == 2 || adaptation == 3) {
+                if (payloadOffset >= offset + 188) continue;
+                payloadOffset += 1 + (input[payloadOffset] & 0xff);
+            }
+            if (adaptation == 2 || payloadOffset >= offset + 188) continue;
+            int payloadLength = offset + 188 - payloadOffset;
+            boolean payloadUnitStart = (first & 0x40) != 0;
+
+            if (pid == 0) {
+                int start = payloadUnitStart ? payloadOffset + (input[payloadOffset] & 0xff) + 1 : payloadOffset;
+                if (start + 12 > offset + 188 || (input[start] & 0xff) != 0) continue;
+                int sectionLength = ((input[start + 1] & 0x0f) << 8) | (input[start + 2] & 0xff);
+                int end = Math.min(offset + 188, start + 3 + sectionLength - 4);
+                for (int cursor = start + 8; cursor + 4 <= end; cursor += 4) {
+                    int program = ((input[cursor] & 0xff) << 8) | (input[cursor + 1] & 0xff);
+                    if (program != 0) {
+                        pmtPid = ((input[cursor + 2] & 0x1f) << 8) | (input[cursor + 3] & 0xff);
+                        break;
+                    }
+                }
+                continue;
+            }
+            if (pid == pmtPid && pmtPid >= 0) {
+                int start = payloadUnitStart ? payloadOffset + (input[payloadOffset] & 0xff) + 1 : payloadOffset;
+                if (start + 12 > offset + 188 || (input[start] & 0xff) != 2) continue;
+                int sectionLength = ((input[start + 1] & 0x0f) << 8) | (input[start + 2] & 0xff);
+                int programInfoLength = ((input[start + 10] & 0x0f) << 8) | (input[start + 11] & 0xff);
+                int end = Math.min(offset + 188, start + 3 + sectionLength - 4);
+                for (int cursor = start + 12 + programInfoLength; cursor + 5 <= end;) {
+                    int streamType = input[cursor] & 0xff;
+                    int elementaryPid = ((input[cursor + 1] & 0x1f) << 8) | (input[cursor + 2] & 0xff);
+                    int esInfoLength = ((input[cursor + 3] & 0x0f) << 8) | (input[cursor + 4] & 0xff);
+                    if (streamType == 0x1b || streamType == 0x24 || streamType == 0x02) {
+                        videoPid = elementaryPid;
+                        break;
+                    }
+                    cursor += 5 + esInfoLength;
+                }
+                continue;
+            }
+            if (pid == videoPid && videoPid >= 0) {
+                payloads.write(input, payloadOffset, payloadLength);
+                if (payloads.size() >= 512 * 1024) break;
+            }
+        }
+        byte[] video = payloads.toByteArray();
+        if (videoPid < 0 || video.length == 0) return null;
+        for (int index = 0; index + 4 < video.length; index++) {
+            int start;
+            if (video[index] == 0 && video[index + 1] == 0 && video[index + 2] == 1) {
+                start = 3;
+            } else if (video[index] == 0 && video[index + 1] == 0
+                    && video[index + 2] == 0 && video[index + 3] == 1) {
+                start = 4;
+            } else {
+                continue;
+            }
+            if ((video[index + start] & 0x1f) != 7) continue;
+            int end = index + start + 1;
+            while (end + 3 < video.length
+                    && !(video[end] == 0 && video[end + 1] == 0
+                    && (video[end + 2] == 1
+                    || (video[end + 2] == 0 && video[end + 3] == 1)))) {
+                end++;
+            }
+            StringBuilder signature = new StringBuilder((end - index - start) * 2);
+            for (int cursor = index + start; cursor < end; cursor++) {
+                signature.append(String.format(Locale.ROOT, "%02x", video[cursor] & 0xff));
+            }
+            return signature.toString();
+        }
+        return null;
     }
 }

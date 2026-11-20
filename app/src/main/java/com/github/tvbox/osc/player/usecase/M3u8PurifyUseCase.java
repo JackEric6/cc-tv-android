@@ -1,6 +1,7 @@
 package com.github.tvbox.osc.player.usecase;
 
 import android.content.Context;
+import com.github.catvod.net.OkHttp;
 import com.github.tvbox.osc.server.ControlManager;
 import com.github.tvbox.osc.server.RemoteServer;
 import com.github.tvbox.osc.util.LOG;
@@ -10,10 +11,21 @@ import com.lzy.okgo.callback.AbsCallback;
 import com.lzy.okgo.model.HttpHeaders;
 import com.lzy.okgo.model.Response;
 
+import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import okhttp3.Call;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
 
 /**
  * m3u8 去广告用例（从 VodController:1667-1834 剥离，Compose 化改造 阶段 0）。
@@ -30,9 +42,14 @@ public final class M3u8PurifyUseCase {
     }
 
     private final Callback callback;
+    private static final String SPS_PROBE_TAG = "m3u8-sps";
+    private static final int SPS_PROBE_TIMEOUT_MS = 2500;
+    private static final int SPS_PROBE_MAX_BYTES = 512 * 1024;
+    private final OkHttpClient probeClient;
 
     public M3u8PurifyUseCase(Context context, Callback callback) {
         this.callback = callback;
+        this.probeClient = OkHttp.client(SPS_PROBE_TIMEOUT_MS);
     }
 
     public void playM3u8(final String url, final HashMap<String, String> headers, final int gen) {
@@ -42,6 +59,7 @@ public final class M3u8PurifyUseCase {
         }
         OkGo.getInstance().cancelTag("m3u8-1");
         OkGo.getInstance().cancelTag("m3u8-2");
+        OkHttp.cancel(probeClient, SPS_PROBE_TAG);
         final HttpHeaders okGoHeaders = new HttpHeaders();
         if (headers != null) {
             for (Map.Entry<String, String> entry : headers.entrySet()) {
@@ -118,10 +136,20 @@ public final class M3u8PurifyUseCase {
     }
 
     private void processM3u8Content(String url, String content, HashMap<String, String> headers, int gen) {
+        if (isXiguaPlaylist(url, content)) {
+            probeXiguaSps(url, content, headers, gen);
+            return;
+        }
+        processM3u8Content(url, content, headers, gen, null);
+    }
+
+    private void processM3u8Content(
+            String url, String content, HashMap<String, String> headers, int gen,
+            Map<String, String> segmentSignatures) {
         String basePath = getBasePath(url);
         M3u8.PurifyResult result;
         try {
-            result = M3u8.purifyWithResult(basePath, content);
+            result = M3u8.purifyWithResult(basePath, content, segmentSignatures);
         } catch (Throwable error) {
             LOG.e("echo-m3u8内容过滤失败，回退原地址: " + error.getMessage());
             callback.startPlayUrl(gen, url, headers);
@@ -137,6 +165,134 @@ public final class M3u8PurifyUseCase {
             String proxyUrl = ControlManager.get().getAddress(true) + "proxyM3u8?k=" + key;
             callback.onM3u8ProxyUrl(gen, proxyUrl, url, headers);
             callback.startPlayUrl(gen, proxyUrl, headers);
+        }
+    }
+
+    private boolean isXiguaPlaylist(String url, String content) {
+        if (content == null || !content.contains("#EXT-X-ENDLIST")) return false;
+        try {
+            String host = new URL(url).getHost().toLowerCase(java.util.Locale.ROOT);
+            return host.matches(".*(?:^|\\.)(?:xgplay\\d*|xgzy|jimxtc)\\..*");
+        } catch (MalformedURLException ignored) {
+            return false;
+        }
+    }
+
+    private void probeXiguaSps(
+            final String baseUrl, final String content,
+            final HashMap<String, String> headers, final int gen) {
+        final List<ProbeGroup> groups = parseProbeGroups(baseUrl, content);
+        if (groups.size() < 3) {
+            processM3u8Content(baseUrl, content, headers, gen, null);
+            return;
+        }
+        final Set<Integer> targetIndexes = new HashSet<>();
+        for (ProbeGroup group : groups) {
+            if (group.urls.size() <= 3 || group.duration <= 12) {
+                for (int index = Math.max(0, group.index - 1);
+                     index <= Math.min(groups.size() - 1, group.index + 1); index++) {
+                    targetIndexes.add(index);
+                }
+            }
+        }
+        if (targetIndexes.isEmpty()) {
+            processM3u8Content(baseUrl, content, headers, gen, null);
+            return;
+        }
+
+        final Map<String, String> signatures = new java.util.concurrent.ConcurrentHashMap<>();
+        final AtomicInteger pending = new AtomicInteger(targetIndexes.size());
+        final AtomicBoolean finished = new AtomicBoolean(false);
+        final Runnable finish = () -> {
+            if (pending.decrementAndGet() != 0 || !finished.compareAndSet(false, true)) return;
+            if (signatures.size() < 3) {
+                processM3u8Content(baseUrl, content, headers, gen, null);
+                return;
+            }
+            Map<String, String> groupSignatures = new HashMap<>();
+            for (ProbeGroup group : groups) {
+                String signature = signatures.get(group.urls.get(0));
+                if (signature == null) continue;
+                for (String groupUrl : group.urls) groupSignatures.put(groupUrl, signature);
+            }
+            processM3u8Content(baseUrl, content, headers, gen, groupSignatures);
+        };
+
+        for (Integer targetIndex : targetIndexes) {
+            ProbeGroup group = groups.get(targetIndex);
+            Request.Builder builder = new Request.Builder()
+                    .url(group.urls.get(0))
+                    .tag(SPS_PROBE_TAG)
+                    .header("Range", "bytes=0-" + (SPS_PROBE_MAX_BYTES - 1));
+            if (headers != null) {
+                for (Map.Entry<String, String> entry : headers.entrySet()) {
+                    if (entry.getKey() != null && entry.getValue() != null
+                            && !"Range".equalsIgnoreCase(entry.getKey())) {
+                        builder.header(entry.getKey(), entry.getValue());
+                    }
+                }
+            }
+            probeClient.newCall(builder.build()).enqueue(new okhttp3.Callback() {
+                @Override
+                public void onFailure(Call call, IOException error) {
+                    finish.run();
+                }
+
+                @Override
+                public void onResponse(Call call, okhttp3.Response response) {
+                    try (okhttp3.Response ignored = response) {
+                        if (!response.isSuccessful() || response.body() == null) return;
+                        byte[] bytes = response.body().source().readByteArray(SPS_PROBE_MAX_BYTES);
+                        String signature = M3u8.extractH264SpsSignature(bytes);
+                        if (signature != null) signatures.put(group.urls.get(0), signature);
+                    } catch (Throwable ignored) {
+                        // 探测失败时继续使用原有净化规则。
+                    } finally {
+                        finish.run();
+                    }
+                }
+            });
+        }
+    }
+
+    private List<ProbeGroup> parseProbeGroups(String baseUrl, String content) {
+        List<ProbeGroup> groups = new ArrayList<>();
+        ProbeGroup current = new ProbeGroup(0);
+        double pendingDuration = 0;
+        for (String raw : content.split("\\r?\\n")) {
+            String line = raw.trim();
+            if ("#EXT-X-DISCONTINUITY".equals(line) && !current.urls.isEmpty()) {
+                groups.add(current);
+                current = new ProbeGroup(groups.size());
+                pendingDuration = 0;
+                continue;
+            }
+            if (line.startsWith("#EXTINF:")) {
+                try {
+                    pendingDuration = Double.parseDouble(
+                            line.substring(8).split(",", 2)[0].trim());
+                } catch (NumberFormatException ignored) {
+                    pendingDuration = 0;
+                }
+                continue;
+            }
+            if (!line.isEmpty() && !line.startsWith("#")) {
+                current.urls.add(resolveForwardUrl(baseUrl, line));
+                if (pendingDuration > 0) current.duration += pendingDuration;
+                pendingDuration = 0;
+            }
+        }
+        if (!current.urls.isEmpty()) groups.add(current);
+        return groups;
+    }
+
+    private static final class ProbeGroup {
+        private final int index;
+        private final List<String> urls = new ArrayList<>();
+        private double duration;
+
+        private ProbeGroup(int index) {
+            this.index = index;
         }
     }
 
