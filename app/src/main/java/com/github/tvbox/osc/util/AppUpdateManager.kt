@@ -13,6 +13,9 @@ import java.io.IOException
 import java.security.MessageDigest
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 
@@ -31,19 +34,85 @@ object AppUpdateManager {
     private const val userAgent = "cc-tv-android-update"
     private const val apkMimeType = "application/vnd.android.package-archive"
     private val githubAccelPrefixes = listOf(
+        // 与 Windows 更新器保持同一批优先线路；代理不一定支持 GitHub API，
+        // 因此请求必须并行探测并忽略 404/403 的失效线路。
         "https://gh-proxy.org/",
         "https://gh.acmsz.top/",
-        "https://ghproxy.net/",
-        "https://ghfast.top/",
+        "https://xsadwsd.kdns.fr/",
+        "https://ghpxy.hwinzniej.top/",
+        "https://js.jiangss.shop/",
+        "https://cfgh.ikgy.top/",
+        "https://gh.meali.top/",
+        "https://gg.z321.cc.cd/",
+        "https://fastgit.cc/",
+        "https://github.mxw.qzz.io/",
         "https://gh.ddlc.top/",
+        "https://gh.chjina.com/",
+        "https://ghf.xn--eqrr82bzpe.top/",
+        "https://gh.idayer.com/",
+        "https://ghm.078465.xyz/",
+        "https://gitproxy.mrhjx.cn/",
         "https://gh.monlor.com/",
-        "https://github.ikgy.top/",
-        "https://ghproxy.imciel.com/",
+        "https://github.geekery.cn/",
+        "https://github.ednovas.xyz/",
+        "https://ghproxy.felicity.land/",
+        "https://down.mxw.xx.kg/",
+        "https://gh.qfmc0721.cc.cd/",
+        "https://github.xxlab.tech/",
+        "https://gh.jjj.gv.uy/",
+        "https://gh.felicity.ac.cn/",
+        "https://jiashu.1win.eu.org/",
+        "https://github.tbap.top/",
+        "https://gh.my-website.ccwu.cc/",
+        "https://cdn.akaere.online/",
+        "https://gh-proxy.com/",
+        "https://tvv.tw/",
+        "https://gh.07150721.xyz/",
+        "https://github.dpik.top/",
+        "https://g.blfrp.cn/",
+        "https://gh.dpik.top/",
+        "https://gh.sixyin.com/",
+        "https://ghproxy.net/",
+        "https://gh.noki.icu/",
+        "https://ghfast.top/",
         "https://gh.catmak.name/",
-        "https://githubdog.com/",
-        "https://git.yylx.win/",
-        "https://ghproxy.cxkpro.top/",
+        "https://gh.inkchills.cn/",
+        "https://git.669966.xyz/",
+        "https://ghproxy.monkeyray.net/",
+        "https://ghfile.geekertao.top/",
+        "https://cdn.gh-proxy.com/",
+        "https://j.1lin.dpdns.org/",
+        "https://github.starrlzy.cn/",
+        "https://github-proxy.memory-echoes.cn/",
+        "https://gh.927223.xyz/",
+        "https://gh.bugdey.us.kg/",
+        "https://gitproxy.127731.xyz/",
+        "https://gh.b52m.cn/",
+        "https://down.mxw.qzz.io/",
+        "https://slink.ltd/",
+        "https://github.tmby.shop/",
+        "https://ghpr.cc/",
+        "https://gh.tryxd.cn/",
+        "https://gitproxy.click/",
+        "https://github.chenc.dev/",
+        "https://gh.jasonzeng.dev/",
+        "https://gp.zkitefly.eu.org/",
+        "https://ghproxy.1888866.xyz/",
+        "https://ghp.arslantu.xyz/",
+        "https://free.cn.eu.org/",
+        "https://ghp.keleyaa.com/",
+        "https://proxy.yaoyaoling.net/",
+        "https://g.z321.cc.cd/",
+        "https://gap.andyjin.website/",
+        "https://gh.ruan.dpdns.org/",
+        "https://github.nswrz.cn/",
+        "https://gh.zhai.edu.pl/",
+        "https://github-cf.947563.xyz/",
+        "https://github.gohj99.site/",
+        "https://githubproxy.gohj99.site/",
     )
+    private const val githubApiProbeLimit = 16
+    private const val githubDownloadProbeLimit = 32
 
     data class UpdateInfo(
         val currentVersion: String,
@@ -157,33 +226,64 @@ object AppUpdateManager {
         }
     }
 
-    private fun requestLatestRelease(currentVersion: String): JSONObject {
-        var lastError: IOException? = null
-        val urls = githubAccelPrefixes.map { "$it$latestReleaseUrl" } + latestReleaseUrl
-        for (url in urls) {
-            try {
-                val request = Request.Builder()
-                    .url(url)
-                    .header("Accept", "application/vnd.github+json")
-                    .header("X-GitHub-Api-Version", "2022-11-28")
-                    .header("User-Agent", "$userAgent/$currentVersion")
-                    .get()
-                    .build()
-                OkHttp.client(8_000L).newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
-                    val release = JSONObject(response.body.string())
-                    if (release.optString("tag_name").isBlank()) throw IOException("Release 响应缺少版本标签")
-                    return release
-                }
-            } catch (error: Exception) {
-                lastError = error as? IOException ?: IOException(error.message ?: "请求失败", error)
+    private suspend fun requestLatestRelease(currentVersion: String): JSONObject = coroutineScope {
+        val urls = releaseApiProbeUrls()
+        val results = urls.map { url ->
+            async(Dispatchers.IO) {
+                runCatching { requestReleaseCandidate(url, currentVersion) }
             }
-        }
-        throw IOException("GitHub Release 请求失败：${lastError?.message ?: "所有线路均失败"}")
+        }.awaitAll()
+        val releases = results.mapNotNull { it.getOrNull() }
+        releases.maxWithOrNull(Comparator { left, right ->
+            compareVersions(left.optString("tag_name"), right.optString("tag_name"))
+        })?.let { return@coroutineScope it }
+
+        val errors = results.mapNotNull { it.exceptionOrNull()?.message }
+            .distinct()
+            .take(4)
+            .joinToString("；")
+        throw IOException("GitHub Release 请求失败：${errors.ifEmpty { "所有线路均失败" }}")
     }
 
+    private fun requestReleaseCandidate(url: String, currentVersion: String): JSONObject {
+        val request = Request.Builder()
+            .url(url)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .header("User-Agent", "$userAgent/$currentVersion")
+            .get()
+            .build()
+        OkHttp.client(8_000L).newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
+            val body = response.body?.string().orEmpty()
+            val release = JSONObject(body)
+            if (normalizeVersion(release.optString("tag_name")) == null) {
+                throw IOException("Release 响应缺少有效版本标签")
+            }
+            if (selectApkAsset(release) == null) {
+                throw IOException("Release 没有有效 APK")
+            }
+            return release
+        }
+    }
+
+    internal fun releaseApiProbeUrls(): List<String> =
+        githubAccelPrefixes.take(githubApiProbeLimit)
+            .map { proxyUrl(it, latestReleaseUrl) }
+            .plus(latestReleaseUrl)
+            .distinct()
+
+    internal fun releaseDownloadUrls(originalUrl: String): List<String> =
+        githubAccelPrefixes.take(githubDownloadProbeLimit)
+            .map { proxyUrl(it, originalUrl) }
+            .plus(originalUrl)
+            .distinct()
+
     private fun downloadUrls(originalUrl: String): List<String> =
-        githubAccelPrefixes.map { "$it$originalUrl" } + originalUrl
+        releaseDownloadUrls(originalUrl)
+
+    private fun proxyUrl(prefix: String, target: String): String =
+        "${prefix.trimEnd('/')}/$target"
 
     /**
      * 启动系统安装器。返回 false 表示系统要求用户先允许本应用安装未知来源。
@@ -244,12 +344,12 @@ object AppUpdateManager {
         }
     }
 
-    private fun normalizeVersion(value: String): String? {
+    internal fun normalizeVersion(value: String): String? {
         val match = Regex("""v?(\d+)\.(\d+)\.(\d+)""").find(value.trim()) ?: return null
         return "${match.groupValues[1]}.${match.groupValues[2]}.${match.groupValues[3]}"
     }
 
-    private fun compareVersions(left: String, right: String): Int {
+    internal fun compareVersions(left: String, right: String): Int {
         val a = normalizeVersion(left)?.split(".")?.map(String::toInt) ?: return 0
         val b = normalizeVersion(right)?.split(".")?.map(String::toInt) ?: return 0
         for (index in 0..2) {

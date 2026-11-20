@@ -7,11 +7,11 @@ val requestedApplicationIdSuffix = (project.findProperty("APP_ID_SUFFIX") as Str
 val requestedVersionCode = (project.findProperty("APP_VERSION_CODE") as String?)
     ?.toIntOrNull()
     // 1.0.676 曾以 versionCode=676 在测试设备上安装；后续版本必须高于它才能覆盖升级。
-    ?: 678
+    ?: 679
 val requestedVersionName = (project.findProperty("APP_VERSION_NAME") as String?)
     ?.trim()
     ?.takeIf { it.isNotEmpty() }
-    ?: "1.0.78-release"
+    ?: "1.0.79-release"
 
 plugins {
     alias(libs.plugins.android.application)
